@@ -1,0 +1,17 @@
+# The image needs only the package and its metadata. Everything else would bloat the build
+# context, bust the layer cache on unrelated edits, or (.env) leak secrets into the image.
+.git
+.venv
+.env
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+docs
+tests
+bench
+evals
+web
+deploy

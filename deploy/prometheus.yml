@@ -1,0 +1,9 @@
+# Prometheus *pulls* metrics: every scrape_interval it GETs /metrics from each target.
+# "api" resolves through the compose network's built-in DNS (one name per service).
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: relay-api
+    static_configs:
+      - targets: ["api:8000"]

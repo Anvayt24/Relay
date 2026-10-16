@@ -1,0 +1,8 @@
+# Store and check out text files with LF endings, even on Windows.
+# Files written with CRLF on Windows break inside Linux containers and CI:
+# shebangs fail ("/bin/sh^M: not found"), and YAML/SQL/Dockerfiles can misparse.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

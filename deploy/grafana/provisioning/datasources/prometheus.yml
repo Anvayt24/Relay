@@ -1,0 +1,10 @@
+# Provisioning: Grafana reads this at startup, so the datasource is configured as code
+# instead of by clicking in the UI. Dashboards are provisioned the same way in Phase 14.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true

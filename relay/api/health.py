@@ -1,0 +1,37 @@
+"""Operational endpoints: liveness, readiness, and Prometheus metrics.
+
+Liveness and readiness answer different questions, and orchestrators act on them differently:
+
+- ``/healthz`` (liveness): "is this process alive?" If it fails, the orchestrator *restarts*
+  the container. It must therefore never check dependencies: if Redis is down, restarting
+  every gateway replica doesn't fix Redis, and the restarts just cause a second outage.
+- ``/readyz`` (readiness): "should this replica receive traffic right now?" If it fails, the
+  load balancer *stops routing to* the replica without killing it. Per PRD FR-1, it reports
+  degraded dependencies in the body but returns 503 only when the gateway cannot serve at
+  all (config not loaded, shutting down). Dependencies are added here as they are
+  introduced (Postgres in Phase 2, Redis in Phase 6).
+"""
+
+from typing import Any
+
+from fastapi import APIRouter, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+router = APIRouter()
+
+
+@router.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.get("/readyz")
+async def readyz() -> dict[str, Any]:
+    return {"status": "ready", "dependencies": {}}
+
+
+# Never expose /metrics publicly (PRD §8). For now compose publishes it for local dev;
+# the deployed demo keeps it on the internal network only (Phase 15).
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -1,0 +1,23 @@
+# OpenTelemetry Collector: receives traces from Relay over OTLP and, for now, just prints
+# them (debug exporter). Phase 14 adds real instrumentation and a trace backend.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

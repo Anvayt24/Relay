@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Lint, type-check, and unit tests: the same `make check` you run locally.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      # --locked fails if uv.lock is out of date with pyproject.toml, so CI never
+      # silently resolves different versions than the ones you tested locally.
+      - run: uv sync --locked
+      - run: make check
+
+  # Proves the image builds and the whole stack comes up healthy (PRD M0: "make up starts the stack").
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f deploy/docker-compose.yml up -d --build --wait
+      - run: curl --fail --silent --show-error http://localhost:8000/healthz
+      - if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
+      - if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
