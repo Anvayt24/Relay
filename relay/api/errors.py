@@ -87,8 +87,24 @@ def _error_response(
     request_id = request.scope.get("state", {}).get("request_id")
     if request_id:
         headers[REQUEST_ID_HEADER] = request_id
-    body = {"error": {"message": message, "type": error_class, "param": param, "code": error_class}}
-    return JSONResponse(status_code=status, content=body, headers=headers)
+    return JSONResponse(
+        status_code=status, content=error_body(error_class, message, param), headers=headers
+    )
+
+
+def error_body(
+    error_class: ErrorClass, message: str, param: str | None = None
+) -> dict[str, dict[str, str | None]]:
+    """The OpenAI error envelope. It is shared by JSON errors and by the SSE error payload
+    sent mid-stream, so both look the same to the SDK."""
+    return {
+        "error": {
+            "message": message,
+            "type": error_class.value,
+            "param": param,
+            "code": error_class.value,
+        }
+    }
 
 
 def _param_from_loc(loc: Sequence[int | str]) -> str | None:

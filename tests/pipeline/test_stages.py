@@ -27,7 +27,9 @@ async def test_provider_stage_sends_upstream_id_and_returns_relay_name(
     ctx: RequestContext,
 ) -> None:
     await RouteStage(StaticRouter(MODELS, ALIASES)).process(ctx)
-    result = await ProviderStage(MODELS, {"mock": MockProvider()}).process(ctx)
+    result = await ProviderStage(
+        MODELS, {"mock": MockProvider()}, first_token_timeout_s=1.0
+    ).process(ctx)
 
     assert isinstance(result, ShortCircuit)
     # The mock echoes the model it was called with; the stage rewrites it back so the
@@ -42,7 +44,7 @@ async def test_provider_stage_sends_upstream_id_and_returns_relay_name(
 async def test_provider_stage_maps_provider_error_to_reject(ctx: RequestContext) -> None:
     await RouteStage(StaticRouter(MODELS, ALIASES)).process(ctx)
     provider = MockProvider(MockBehavior(error=ErrorClass.TIMEOUT))
-    result = await ProviderStage(MODELS, {"mock": provider}).process(ctx)
+    result = await ProviderStage(MODELS, {"mock": provider}, first_token_timeout_s=1.0).process(ctx)
 
     assert isinstance(result, Reject)
     assert result.error.status == 504
@@ -51,11 +53,13 @@ async def test_provider_stage_maps_provider_error_to_reject(ctx: RequestContext)
 
 async def test_provider_stage_requires_a_decision(ctx: RequestContext) -> None:
     with pytest.raises(RuntimeError, match="RouteStage"):
-        await ProviderStage(MODELS, {"mock": MockProvider()}).process(ctx)
+        await ProviderStage(MODELS, {"mock": MockProvider()}, first_token_timeout_s=1.0).process(
+            ctx
+        )
 
 
 def test_provider_stage_validates_config_at_construction() -> None:
     # A model whose provider has no adapter is a config bug: fail at startup, not on the
     # first request that happens to use it.
     with pytest.raises(ValueError, match="mock"):
-        ProviderStage(MODELS, {})
+        ProviderStage(MODELS, {}, first_token_timeout_s=1.0)

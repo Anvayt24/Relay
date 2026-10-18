@@ -58,8 +58,53 @@ async def test_injected_error_raises_provider_error() -> None:
     assert provider.calls == 1
 
 
+async def test_stream_shape() -> None:
+    provider = MockProvider()
+    chunks = [c async for c in provider.stream(_request("hello there"))]
+
+    assert chunks[0].choices[0].delta.role == "assistant"
+    text = "".join(c.choices[0].delta.content or "" for c in chunks if c.choices)
+    # Streaming and non-streaming produce the same text.
+    assert text == "mock: hello there"
+    assert chunks[-2].choices[0].finish_reason == "stop"
+    # The usage chunk always comes last, with no choices, as in OpenAI's format.
+    assert chunks[-1].choices == []
+    assert chunks[-1].usage is not None
+    assert chunks[-1].usage.completion_tokens == 3
+    assert provider.open_streams == 0
+
+
+async def test_stream_fails_after_k_content_chunks() -> None:
+    provider = MockProvider(MockBehavior(fail_after_chunks=2))
+    received: list[str] = []
+    with pytest.raises(ProviderError) as exc:
+        async for chunk in provider.stream(_request("one two three")):
+            if chunk.has_content:
+                received.append(chunk.choices[0].delta.content or "")
+    assert received == ["mock:", " one"]
+    assert exc.value.error_class is ErrorClass.STREAM_BROKEN
+
+
+async def test_stream_error_without_fail_after_fails_immediately() -> None:
+    provider = MockProvider(MockBehavior(error=ErrorClass.SERVER_ERROR))
+    with pytest.raises(ProviderError):
+        await anext(provider.stream(_request()))
+    assert provider.open_streams == 0
+
+
+async def test_aclose_runs_the_stream_cleanup() -> None:
+    provider = MockProvider()
+    stream = provider.stream(_request())
+    await anext(stream)
+    assert provider.open_streams == 1
+    await stream.aclose()
+    assert provider.open_streams == 0
+
+
 async def test_latency_is_simulated() -> None:
-    provider = MockProvider(MockBehavior(latency_s=0.05))
+    provider = MockProvider(MockBehavior(latency_s=0.1))
     started = time.monotonic()
     await provider.complete(_request())
-    assert time.monotonic() - started >= 0.05
+    # Not ">= 0.1": on Windows the monotonic clock ticks in ~16 ms steps, so a 100 ms sleep
+    # can measure as 94 ms. The test only needs to show the delay happened.
+    assert time.monotonic() - started >= 0.08

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from relay.pipeline.context import RequestContext
+from relay.pipeline.streaming import PrimedStream
 from relay.schemas.chat import ChatResponse
 from relay.schemas.errors import ErrorClass, RelayError
 
@@ -32,7 +33,7 @@ class Continue:
 
 @dataclass(frozen=True)
 class ShortCircuit:
-    response: ChatResponse  # Phase 2 widens this to "response or stream"
+    response: ChatResponse | PrimedStream
 
 
 @dataclass(frozen=True)
@@ -45,9 +46,13 @@ type StageResult = Continue | ShortCircuit | Reject
 
 @dataclass(frozen=True)
 class Outcome:
-    """How the request ended, as seen by finalize()."""
+    """How the request ended, as seen by finalize().
 
-    status: Literal["success", "error", "cancelled"]
+    ``failed_midstream`` is separate from ``error`` because the client already received part
+    of an answer. That difference matters for billing, reservations and evidence sampling.
+    """
+
+    status: Literal["success", "error", "cancelled", "failed_midstream"]
     error_class: ErrorClass | None = None
 
 

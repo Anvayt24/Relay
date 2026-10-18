@@ -129,12 +129,6 @@ async def test_upstream_auth_failure_is_502_not_401(
     assert r.json()["error"]["type"] == "auth"
 
 
-async def test_stream_true_is_rejected_for_now(client: httpx.AsyncClient) -> None:
-    r = await client.post(CHAT, json=_body(stream=True))
-    assert r.status_code == 400
-    assert r.json()["error"]["param"] == "stream"
-
-
 async def test_unknown_fields_are_counted(client: httpx.AsyncClient) -> None:
     before = REGISTRY.get_sample_value("relay_request_ignored_fields_total") or 0.0
     r = await client.post(CHAT, json=_body(logit_bias={}, presence_penalty=0.1))

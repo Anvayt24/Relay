@@ -8,14 +8,20 @@ Fields arrive in the phase that first needs them; the rest of PRD §9.3 is still
 - ``reservation``: Phase 6;
 - ``degraded``: Phase 7;
 - ``cache``: Phase 10.
+
+``started_at``, ``received_at``, ``ttft_s`` and ``usage`` are not in §9.3. They are what the
+log row (Phase 2) and later the reservation reconcile (Phase 6) need, and both run in
+finalize(), after the response is gone.
 """
 
+import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
 
 from relay.config.tenants import Tenant
 from relay.routing.base import RouteDecision
-from relay.schemas.chat import ChatRequest
+from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ErrorClass
 
 Priority = Literal["interactive", "batch"]
@@ -28,7 +34,7 @@ class ProviderAttempt:
 
     provider: str
     model: str  # Relay name
-    latency_s: float
+    latency_s: float  # for a stream: time to the first content chunk
     error_class: ErrorClass | None  # None = success
 
 
@@ -47,3 +53,10 @@ class RequestContext:
     stream: bool
     decision: RouteDecision | None = None
     attempts: list[ProviderAttempt] = field(default_factory=list)
+    # Two clocks for two jobs. Monotonic for measuring durations: it never jumps. Wall-clock
+    # UTC for the timestamp stored in the log row: it means something to humans and joins
+    # across machines.
+    started_at: float = field(default_factory=time.monotonic)
+    received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    ttft_s: float | None = None  # streams only: when the first content chunk was sent
+    usage: Usage | None = None

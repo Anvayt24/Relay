@@ -164,3 +164,43 @@ class ChatResponse(BaseModel):
     model: str
     choices: list[Choice]
     usage: Usage
+
+
+# ---------------------------------------------------------------- streaming
+# A stream is a sequence of chunks:
+# - one role-only chunk;
+# - content chunks;
+# - a chunk with finish_reason;
+# - a final usage-only chunk (empty choices).
+# Relay only forwards that last one when the client set stream_options.include_usage.
+
+
+class ChunkDelta(BaseModel):
+    role: Literal["assistant"] | None = None
+    content: str | None = None
+
+
+class ChunkChoice(BaseModel):
+    index: int = 0
+    delta: ChunkDelta
+    finish_reason: Literal["stop", "length"] | None = None
+
+
+class ChatChunk(BaseModel):
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChunkChoice]
+    usage: Usage | None = None
+
+    @property
+    def has_content(self) -> bool:
+        """True for the chunk FR-5 calls the "first byte": the first one carrying text. The
+        role-only chunk before it does not count, because a failure can still be hidden from
+        the client at that point."""
+        return any(choice.delta.content for choice in self.choices)
+
+    @property
+    def is_finished(self) -> bool:
+        return any(choice.finish_reason is not None for choice in self.choices)

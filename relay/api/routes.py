@@ -12,13 +12,13 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from prometheus_client import Counter
 from pydantic import BaseModel
 
+from relay.api.streaming import RelayStreamingResponse
 from relay.config.models import ModelSpec
 from relay.config.tenants import ANONYMOUS
 from relay.pipeline.context import Priority, RequestContext
-from relay.pipeline.runner import Pipeline
+from relay.pipeline.runner import Pipeline, StreamResult
 from relay.routing.static import STATIC_POLICY_VERSION
 from relay.schemas.chat import ChatRequest, ChatResponse
-from relay.schemas.errors import ErrorClass, RelayError
 from relay.settings import Settings
 
 router = APIRouter(prefix="/v1")
@@ -44,7 +44,10 @@ def get_settings(request: Request) -> Settings:
     return settings
 
 
-@router.post("/chat/completions")
+# response_model is explicit because the endpoint returns either a ChatResponse (serialized by
+# FastAPI) or a ready-made streaming Response (passed through untouched). FastAPI cannot
+# derive a response model from that union.
+@router.post("/chat/completions", response_model=ChatResponse)
 async def chat_completions(
     body: ChatRequest,
     request: Request,
@@ -54,11 +57,7 @@ async def chat_completions(
     # A bad value is a validation error → 400 with param "x-relay-priority".
     x_relay_priority: Annotated[Priority, Header()] = "interactive",
     x_relay_cohort: Annotated[str | None, Header()] = None,
-) -> ChatResponse:
-    if body.stream:
-        raise RelayError(
-            400, ErrorClass.UNSUPPORTED_PARAMETER, "stream=true is not supported yet", "stream"
-        )
+) -> ChatResponse | Response:
     if body.ignored_fields:
         IGNORED_FIELDS.inc(len(body.ignored_fields))
 
@@ -75,15 +74,26 @@ async def chat_completions(
         stream=body.stream,
     )
 
+    # Any failure up to here, including a stream that broke before its first content chunk,
+    # is raised as RelayError and becomes an ordinary JSON error response.
     result = await pipeline.run(ctx)
 
     if ctx.decision is None or not ctx.attempts:
         raise RuntimeError("pipeline returned a response without a decision and an attempt")
+    relay_headers = {
+        "X-Relay-Route": ctx.route,
+        "X-Relay-Provider": ctx.attempts[-1].provider,
+        "X-Relay-Model": ctx.decision.model,
+    }
+
+    if isinstance(result, StreamResult):
+        # From here the response owns the stream *and* the pipeline's finalize.
+        return RelayStreamingResponse(
+            result, ctx, idle_timeout_s=settings.stream_idle_timeout_s, headers=relay_headers
+        )
     # Headers on the injected Response are merged into the one FastAPI builds from the
     # return value.
-    response.headers["X-Relay-Route"] = ctx.route
-    response.headers["X-Relay-Provider"] = ctx.attempts[-1].provider
-    response.headers["X-Relay-Model"] = ctx.decision.model
+    response.headers.update(relay_headers)
     return result
 
 

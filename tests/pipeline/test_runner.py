@@ -1,12 +1,14 @@
 import asyncio
+from collections.abc import AsyncGenerator
 
 import pytest
 from prometheus_client import REGISTRY
 
 from relay.pipeline.context import RequestContext
-from relay.pipeline.runner import Pipeline
+from relay.pipeline.runner import Pipeline, StreamResult
 from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, StageResult
-from relay.schemas.chat import ChatResponse
+from relay.pipeline.streaming import PrimedStream
+from relay.schemas.chat import ChatChunk, ChatResponse
 from relay.schemas.errors import ErrorClass, RelayError
 
 
@@ -186,6 +188,35 @@ async def test_pipeline_without_a_responding_stage_is_a_bug(ctx: RequestContext)
         await pipeline.run(ctx)
 
     assert rec.events[-2:] == ["finalize:b", "finalize:a"]
+
+
+async def _empty_stream() -> AsyncGenerator[ChatChunk, None]:
+    return
+    yield  # pragma: no cover
+
+
+async def test_stream_hands_finalize_to_the_caller(ctx: RequestContext) -> None:
+    rec = Recorder()
+    primed = PrimedStream(buffered=[], upstream=_empty_stream(), relay_model="mock/strong")
+    pipeline = Pipeline(
+        [FakeStage("log", rec), FakeStage("provider", rec, result=ShortCircuit(primed))]
+    )
+
+    result = await pipeline.run(ctx)
+
+    # The request is not over when run() returns a stream, so nothing is finalized yet.
+    assert isinstance(result, StreamResult)
+    assert result.stream is primed
+    assert rec.events == ["process:log", "process:provider"]
+
+    await result.finalize(Outcome("failed_midstream", ErrorClass.STREAM_BROKEN))
+    assert rec.events[-2:] == ["finalize:provider", "finalize:log"]
+    assert rec.outcomes["log"].status == "failed_midstream"
+
+    # Exactly once: overlapping cleanup paths (error, then cancel) must not finalize twice.
+    await result.finalize(Outcome("cancelled"))
+    assert rec.events.count("finalize:log") == 1
+    assert rec.outcomes["log"].status == "failed_midstream"
 
 
 def _finalize_errors(stage: str) -> float:
