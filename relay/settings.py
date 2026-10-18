@@ -21,3 +21,5 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
+    # End-to-end budget per request (PRD FR-5 interactive default). Phase 7 enforces it.
+    request_timeout_s: float = 60.0
