@@ -23,4 +23,8 @@ htmlcov/
 Thumbs.db
 
 docs
+.hypothesis/
 
+
+# Local assistant instructions: kept on disk, never in the repo.
+CLAUDE.md
