@@ -26,9 +26,18 @@ MODEL = "sim-model"
 MESSAGES: Any = [{"role": "user", "content": "hello there"}]
 
 
+class _FrozenClock:
+    # Capacity refills with time. A frozen clock makes the x-ratelimit numbers exact instead
+    # of depending on how many milliseconds passed between two requests on a busy machine.
+    def now(self) -> float:
+        return 0.0
+
+
 def _sampled(**scenario: Any) -> Simulator:
     profile = ModelProfile(length=OutputLength(4, 8), quality=QualitySpec(base=0.5))
-    return Simulator.from_scenario(Scenario(models={MODEL: profile}, **scenario), seed=3)
+    return Simulator.from_scenario(
+        Scenario(models={MODEL: profile}, **scenario), seed=3, clock=_FrozenClock()
+    )
 
 
 def _sdk(simulator: Simulator) -> anthropic.AsyncAnthropic:

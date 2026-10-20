@@ -62,3 +62,6 @@ class MockProvider:
         finally:
             # Runs on normal end, on an exception, and on aclose() (GeneratorExit).
             self.open_streams -= 1
+
+    async def aclose(self) -> None:
+        return None  # in-process: no connections to release

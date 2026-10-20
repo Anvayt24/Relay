@@ -83,6 +83,9 @@ class Simulator:
             else None
         )
         self._indexes = itertools.count()
+        # Requests that reached the simulator. Over HTTP this is how a test proves an adapter
+        # did not retry behind Relay's back (Relay is the single retry owner).
+        self.calls = 0
         # Incident windows count from the first request, not from construction. A slow
         # startup (or a test that builds the simulator early) must not eat into the schedule.
         self._t0: float | None = None
@@ -105,6 +108,7 @@ class Simulator:
         index: int | None = None,
         cohort: str = "default",
     ) -> "Call":
+        self.calls += 1
         if index is None:
             index = next(self._indexes)
         model = req.model
@@ -215,7 +219,9 @@ class Call:
     def _error(self, error_class: ErrorClass) -> ProviderError:
         signal = None
         if self.plan.retry_after_s is not None:
-            signal = ProviderSignal(retry_after_s=self.plan.retry_after_s, limit_scope="model")
+            # No limit_scope: an injected fault doesn't know which limit it stands for, so it
+            # leaves the scope to the provider's config. (Capacity 429s know theirs, and say.)
+            signal = ProviderSignal(retry_after_s=self.plan.retry_after_s)
         return ProviderError(error_class, f"simulated {error_class}", signal)
 
 

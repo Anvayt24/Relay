@@ -9,7 +9,6 @@ real socket, because "the server closed the connection mid-body" only exists on 
 connection; they run uvicorn on 127.0.0.1 with an ephemeral port.
 """
 
-from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx2
@@ -27,9 +26,18 @@ MODEL = "sim-model"
 MESSAGES: Any = [{"role": "user", "content": "hello there"}]
 
 
+class _FrozenClock:
+    # Capacity refills with time. A frozen clock makes the x-ratelimit numbers exact instead
+    # of depending on how many milliseconds passed between two requests on a busy machine.
+    def now(self) -> float:
+        return 0.0
+
+
 def _sampled(**scenario: Any) -> Simulator:
     profile = ModelProfile(length=OutputLength(4, 8), quality=QualitySpec(base=0.5))
-    return Simulator.from_scenario(Scenario(models={MODEL: profile}, **scenario), seed=3)
+    return Simulator.from_scenario(
+        Scenario(models={MODEL: profile}, **scenario), seed=3, clock=_FrozenClock()
+    )
 
 
 def _sdk(simulator: Simulator, base_url: str = "http://sim.test/v1") -> openai.AsyncOpenAI:
@@ -173,45 +181,14 @@ async def test_truth_endpoint_matches_the_engine() -> None:
 
 
 # ---------------------------------------------------------------- real socket
-@pytest.fixture
-async def live_server() -> AsyncIterator[Any]:
-    """Start uvicorn for a given simulator on an ephemeral localhost port."""
-    import asyncio
-
-    import uvicorn
-
-    class _Server(uvicorn.Server):
-        def __init__(self, config: uvicorn.Config) -> None:
-            super().__init__(config)
-            self.ready = asyncio.Event()
-
-        async def startup(self, sockets: Any = None) -> None:
-            await super().startup(sockets)
-            self.ready.set()
-
-    servers: list[tuple[_Server, asyncio.Task[None]]] = []
-
-    async def start(simulator: Simulator) -> str:
-        # log_level critical: the dropped-connection tests make uvicorn log the (expected)
-        # ConnectionDropped traceback.
-        config = uvicorn.Config(
-            create_sim_app(simulator), host="127.0.0.1", port=0, log_level="critical"
-        )
-        server = _Server(config)
-        task = asyncio.create_task(server.serve())
-        await asyncio.wait_for(server.ready.wait(), timeout=10)
-        servers.append((server, task))
-        port = server.servers[0].sockets[0].getsockname()[1]
-        return f"http://127.0.0.1:{port}/v1"
-
-    yield start
-    for server, task in servers:
-        server.should_exit = True
-        await task
+# `live_server` (tests/conftest.py) runs an app under uvicorn on a free localhost port.
 
 
 async def test_mid_stream_failure_drops_the_connection(live_server: Any) -> None:
-    base_url = await live_server(Simulator.scripted(MockBehavior(fail_after_chunks=2)))
+    base_url = (
+        await live_server(create_sim_app(Simulator.scripted(MockBehavior(fail_after_chunks=2))))
+        + "/v1"
+    )
     received: list[str] = []
     async with _sdk(Simulator.scripted(), base_url) as sdk:
         stream = await sdk.chat.completions.create(model=MODEL, messages=MESSAGES, stream=True)
@@ -225,7 +202,12 @@ async def test_mid_stream_failure_drops_the_connection(live_server: Any) -> None
 
 
 async def test_non_streaming_body_can_be_cut_off(live_server: Any) -> None:
-    base_url = await live_server(Simulator.scripted(MockBehavior(error=ErrorClass.STREAM_BROKEN)))
+    base_url = (
+        await live_server(
+            create_sim_app(Simulator.scripted(MockBehavior(error=ErrorClass.STREAM_BROKEN)))
+        )
+        + "/v1"
+    )
     async with _sdk(Simulator.scripted(), base_url) as sdk:
         with pytest.raises(openai.APIConnectionError):
             await sdk.chat.completions.create(model=MODEL, messages=MESSAGES)
