@@ -4,18 +4,36 @@
 
 name: relay
 
+# Shared by api and migrate. Both build the same image; the second build is served from the
+# layer cache.
+x-relay-image: &relay-image
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  environment:
+    RELAY_ENV: dev
+    RELAY_DATABASE_URL: postgresql://relay:relay@postgres:5432/relay
+
 services:
+  # One-shot: applies SQL migrations, then exits. api waits for it to *succeed*
+  # (service_completed_successfully), so the requests table exists before the first request.
+  migrate:
+    <<: *relay-image
+    command: ["python", "-m", "relay.telemetry.migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    <<: *relay-image
     ports:
       - "8000:8000"
-    environment:
-      RELAY_ENV: dev
     depends_on:
-      # Not used by the code yet (Phases 2 and 6), but the API must never start before
-      # its dependencies are healthy, so the ordering is set up now.
+      # Relay itself can start and serve without Postgres (degradation matrix). This ordering
+      # is a local-dev convenience, so a fresh stack logs from its first request.
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:

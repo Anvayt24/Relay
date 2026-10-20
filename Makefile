@@ -7,7 +7,7 @@
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help install fmt lint typecheck test check up down logs \
+.PHONY: help install fmt lint typecheck test test-integration migrate check up down logs \
         chaos load eval eval-router eval-cache eval-evidence reproduce
 
 help:
@@ -16,6 +16,8 @@ help:
 	@echo   fmt          auto-format and auto-fix lint issues
 	@echo   check        lint + typecheck + test (what CI runs)
 	@echo   lint / typecheck / test
+	@echo   test-integration   tests that need Postgres (run make up first)
+	@echo   migrate      apply SQL migrations to RELAY_DATABASE_URL
 	@echo   up / down / logs   docker-compose stack
 	@echo   chaos load eval eval-router eval-cache eval-evidence reproduce   (later phases)
 
@@ -35,6 +37,13 @@ typecheck:
 
 test:
 	uv run pytest --cov --cov-report=term-missing
+
+# The last -m wins over the one in pyproject's addopts, so this selects only integration tests.
+test-integration:
+	uv run pytest -m integration
+
+migrate:
+	uv run python -m relay.telemetry.migrate
 
 check: lint typecheck test
 

@@ -12,10 +12,13 @@ Liveness and readiness answer different questions, and orchestrators act on them
   introduced (Postgres in Phase 2, Redis in Phase 6).
 """
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from relay.settings import Settings
+from relay.telemetry.log_writer import LogWriter
 
 router = APIRouter()
 
@@ -26,8 +29,19 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/readyz")
-async def readyz() -> dict[str, Any]:
-    return {"status": "ready", "dependencies": {}}
+async def readyz(request: Request) -> dict[str, Any]:
+    # Always 200 while serving: a degraded dependency is reported, not failed on (FR-1).
+    return {"status": "ready", "dependencies": {"postgres": _postgres_status(request)}}
+
+
+def _postgres_status(request: Request) -> Literal["ok", "degraded", "disabled"]:
+    settings: Settings = request.app.state.settings
+    if not settings.database_url:
+        return "disabled"
+    writer: LogWriter = request.app.state.log_writer
+    # Passive check: the result of the last log write. It costs nothing per probe, but an
+    # idle replica reports the last known state. Phase 14 can add an active ping if needed.
+    return "degraded" if writer.last_write_ok is False else "ok"
 
 
 # Never expose /metrics publicly (PRD §8). For now compose publishes it for local dev;
