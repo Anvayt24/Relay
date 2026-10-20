@@ -15,7 +15,7 @@ async def test_readyz_reports_ready_with_dependency_map(client: httpx.AsyncClien
     body = resp.json()
     assert body["status"] == "ready"
     # No database configured in tests. "disabled" is still ready: it's an allowed mode.
-    assert body["dependencies"] == {"postgres": "disabled"}
+    assert body["dependencies"] == {"postgres": "disabled", "redis": "disabled"}
 
 
 async def test_metrics_exposes_prometheus_text_format(client: httpx.AsyncClient) -> None:

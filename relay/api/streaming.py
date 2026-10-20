@@ -33,10 +33,13 @@ from prometheus_client import Counter
 from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
+from relay.admission.tokens import text_tokens
 from relay.api.sse import DONE, encode_chunk, encode_error
+from relay.config.pricing import usd
 from relay.pipeline.context import RequestContext
 from relay.pipeline.runner import StreamResult
 from relay.pipeline.stage import Outcome
+from relay.schemas.chat import ChatChunk
 from relay.schemas.errors import ErrorClass, ProviderError
 
 FAILED_MIDSTREAM = Counter(
@@ -92,6 +95,7 @@ class RelayStreamingResponse(StreamingResponse):
             for chunk in stream.buffered:
                 if chunk.has_content and self._ctx.ttft_s is None:
                     self._ctx.ttft_s = time.monotonic() - self._ctx.started_at
+                self._count_forwarded(chunk)
                 yield encode_chunk(chunk)
 
             while True:
@@ -106,10 +110,11 @@ class RelayStreamingResponse(StreamingResponse):
                     break
                 chunk = stream.relabel(chunk)
                 if chunk.usage is not None:
-                    self._ctx.usage = chunk.usage  # always recorded, for logs and (later) cost
+                    self._ctx.record_usage(chunk.usage)  # always: for logs and cost
                     if include_usage:
                         yield encode_chunk(chunk, extra={"relay": self._relay_extension()})
                     continue
+                self._count_forwarded(chunk)
                 yield encode_chunk(chunk)
         except (ProviderError, TimeoutError) as e:
             self._outcome = Outcome("failed_midstream", ErrorClass.STREAM_BROKEN)
@@ -122,14 +127,25 @@ class RelayStreamingResponse(StreamingResponse):
         self._outcome = Outcome("success")
         yield DONE
 
+    def _count_forwarded(self, chunk: ChatChunk) -> None:
+        # Counted *before* the yield: once yielded, the client may already have it, and a
+        # cancellation can arrive at the yield itself.
+        for choice in chunk.choices:
+            if choice.delta.content:
+                self._ctx.forwarded_tokens += text_tokens(choice.delta.content)
+
     def _relay_extension(self) -> dict[str, str]:
         # Extra top-level key on the final usage chunk (FR-1). OpenAI SDKs ignore unknown
-        # fields; the cost goes here in Phase 5, since a header can't carry it (headers were
-        # sent before the cost was known).
+        # fields. The cost lives here because a header can't carry it: headers were sent with
+        # the first chunk, before the usage (and so the cost) was known.
         attempt = self._ctx.attempts[-1]
-        return {
+        extension = {
             "request_id": self._ctx.request_id,
             "route": self._ctx.route,
             "provider": attempt.provider,
             "model": attempt.model,
         }
+        if self._ctx.cost is not None:
+            extension["cost_usd"] = usd(self._ctx.cost.billed_nano)
+            extension["list_cost_usd"] = usd(self._ctx.cost.list_nano)
+        return extension

@@ -14,8 +14,10 @@ from pydantic import BaseModel
 
 from relay.api.streaming import RelayStreamingResponse
 from relay.config.models import ModelSpec
-from relay.config.tenants import ANONYMOUS
-from relay.pipeline.context import Priority, RequestContext
+from relay.config.pricing import usd
+from relay.config.schema import RelayConfig
+from relay.config.tenants import Priority, Tenant
+from relay.pipeline.context import RequestContext
 from relay.pipeline.runner import Pipeline, StreamResult
 from relay.routing.static import STATIC_POLICY_VERSION
 from relay.schemas.chat import ChatRequest, ChatResponse
@@ -44,6 +46,18 @@ def get_settings(request: Request) -> Settings:
     return settings
 
 
+async def get_tenant(request: Request) -> Tenant:
+    """Authenticate the caller (FR-3). Runs before the body is even looked at: an
+    unauthenticated caller gets 401, never a validation error that hints at the API."""
+    fixed: Tenant | None = request.app.state.auth_disabled_tenant
+    if fixed is not None:
+        return fixed
+    tenant: Tenant = await request.app.state.authenticator.authenticate(
+        request.headers.get("authorization")
+    )
+    return tenant
+
+
 # response_model is explicit because the endpoint returns either a ChatResponse (serialized by
 # FastAPI) or a ready-made streaming Response (passed through untouched). FastAPI cannot
 # derive a response model from that union.
@@ -52,23 +66,25 @@ async def chat_completions(
     body: ChatRequest,
     request: Request,
     response: Response,
+    tenant: Annotated[Tenant, Depends(get_tenant)],
     pipeline: Annotated[Pipeline, Depends(get_pipeline)],
     settings: Annotated[Settings, Depends(get_settings)],
     # A bad value is a validation error → 400 with param "x-relay-priority".
-    x_relay_priority: Annotated[Priority, Header()] = "interactive",
+    x_relay_priority: Annotated[Priority | None, Header()] = None,
     x_relay_cohort: Annotated[str | None, Header()] = None,
 ) -> ChatResponse | Response:
     if body.ignored_fields:
         IGNORED_FIELDS.inc(len(body.ignored_fields))
 
-    tenant = ANONYMOUS  # Phase 5: resolved from the API key
     ctx = RequestContext(
         request_id=request.state.request_id,
         tenant=tenant,
         request=body,
         route=tenant.route,
-        priority=x_relay_priority,
-        cohort=x_relay_cohort,
+        priority=x_relay_priority or tenant.default_priority,
+        # Only tags on the tenant's allowlist are kept; anything else becomes "other", so
+        # clients can't create unbounded cohorts in the evidence data (FR-1).
+        cohort=tenant.cohort(x_relay_cohort),
         policy_version=STATIC_POLICY_VERSION,
         deadline=time.monotonic() + settings.request_timeout_s,
         stream=body.stream,
@@ -92,7 +108,9 @@ async def chat_completions(
             result, ctx, idle_timeout_s=settings.stream_idle_timeout_s, headers=relay_headers
         )
     # Headers on the injected Response are merged into the one FastAPI builds from the
-    # return value.
+    # return value. JSON responses know their cost now; streams carry it in the final chunk.
+    if ctx.cost is not None:
+        relay_headers["X-Relay-Cost-USD"] = usd(ctx.cost.billed_nano)
     response.headers.update(relay_headers)
     return result
 
@@ -111,10 +129,22 @@ class ModelList(BaseModel):
 
 
 @router.get("/models")
-async def list_models(request: Request) -> ModelList:
-    # Phase 5 filters this per tenant (allowed_providers, FR-1).
-    models: dict[str, ModelSpec] = request.app.state.models
-    aliases: dict[str, str] = request.app.state.aliases
-    data = [ModelObject(id=alias, owned_by="relay") for alias in aliases]
-    data += [ModelObject(id=name, owned_by=spec.provider) for name, spec in models.items()]
+async def list_models(
+    request: Request, tenant: Annotated[Tenant, Depends(get_tenant)]
+) -> ModelList:
+    # Only what *this* tenant can call (FR-1): its route's aliases, then explicit models, each
+    # only if its provider is configured and the tenant may use it.
+    config: RelayConfig = request.app.state.config
+    available: dict[str, ModelSpec] = request.app.state.models
+
+    def usable(name: str) -> bool:
+        return name in available and tenant.allows(name, available[name].provider)
+
+    aliases = config.routes[tenant.route].aliases
+    data = [ModelObject(id=alias, owned_by="relay") for alias, t in aliases.items() if usable(t)]
+    data += [
+        ModelObject(id=name, owned_by=spec.provider)
+        for name, spec in available.items()
+        if usable(name)
+    ]
     return ModelList(data=data)

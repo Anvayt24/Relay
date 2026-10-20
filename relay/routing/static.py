@@ -1,15 +1,20 @@
-"""Router v0: static rules (PRD FR-7). An alias maps to a fixed model; an explicit model name
-is used as-is.
+"""Router v0: static rules (PRD FR-7). An alias maps to a fixed model through the tenant's
+route; an explicit model name is used as-is.
 
 Lookups use the full Relay name as the key and never split it. Upstream IDs contain slashes
 (``openrouter/meta-llama/<model>:free``), so any code that splits a name has to guess where
 the provider prefix ends. Looking up the whole name removes the guess.
+
+Aliases are per route (FR-3): ``relay/cheap`` is a simulator model on the ``default`` route
+and a Groq model on ``live``. The tenant decides the route, so two tenants sending the same
+request can reach different models.
 """
 
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from relay.config.models import ModelSpec
+from relay.config.schema import RelayConfig
 from relay.routing.base import RouteDecision
 from relay.schemas.chat import ChatRequest
 from relay.schemas.errors import ErrorClass, RelayError
@@ -20,30 +25,36 @@ if TYPE_CHECKING:
 STATIC_POLICY_VERSION = "static-v0"
 
 
+def model_not_found(name: str) -> RelayError:
+    # One message for "doesn't exist", "not on this tenant's list" and "provider not
+    # configured", so a caller can't map out the catalogue by probing names.
+    return RelayError(
+        404,
+        ErrorClass.MODEL_NOT_FOUND,
+        f"model {name!r} does not exist or you do not have access to it; "
+        "GET /v1/models lists the ones you can use",
+        param="model",
+    )
+
+
 class StaticRouter:
-    def __init__(self, models: Mapping[str, ModelSpec], aliases: Mapping[str, str]) -> None:
-        # A dangling alias is a config bug. Catch it when the app starts, not when the first
-        # unlucky client happens to use it.
-        for alias, target in aliases.items():
-            if target not in models:
-                raise ValueError(f"alias {alias!r} points at unknown model {target!r}")
-        self._models = models
-        self._aliases = aliases
+    def __init__(self, config: RelayConfig, available: Mapping[str, ModelSpec]) -> None:
+        # Aliases were validated when the config loaded; nothing to check here.
+        self._config = config
+        self._available = available  # models whose provider has an adapter (a key)
 
     async def decide(self, req: ChatRequest, ctx: "RequestContext") -> RouteDecision:
-        if req.model in self._aliases:
-            name, reason = self._aliases[req.model], "alias"
-        elif req.model in self._models:
+        aliases = self._config.routes[ctx.route].aliases
+        if req.model in aliases:
+            name, reason = aliases[req.model], "alias"
+        elif req.model in self._config.models:
             name, reason = req.model, "explicit"
         else:
-            raise RelayError(
-                404,
-                ErrorClass.MODEL_NOT_FOUND,
-                f"model {req.model!r} does not exist; GET /v1/models lists the available ones",
-                param="model",
-            )
+            raise model_not_found(req.model)
+        if name not in self._available:
+            raise model_not_found(req.model)
         return RouteDecision(
-            tier=self._models[name].tier,
+            tier=self._config.models[name].tier,
             model=name,
             score=None,
             reason=reason,

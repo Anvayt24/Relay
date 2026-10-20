@@ -12,6 +12,8 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
+    "pyyaml>=6.0.3",
+    "redis>=8.1.0",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -71,12 +73,15 @@ branch = true
 
 [dependency-groups]
 dev = [
+    "anthropic>=1.15.0",
     "asyncpg-stubs>=0.32.0",
     "httpx2>=2.14.0",
+    "hypothesis>=6.170.5",
     "mypy>=2.4.0",
     "openai>=3.35.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.1",
+    "types-pyyaml>=6.0.12.20260906",
 ]

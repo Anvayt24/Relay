@@ -7,7 +7,7 @@
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help install fmt lint typecheck test test-integration migrate check up down logs \
+.PHONY: help install fmt lint typecheck test test-integration migrate sim check up down logs \
         chaos load eval eval-router eval-cache eval-evidence reproduce
 
 help:
@@ -18,6 +18,7 @@ help:
 	@echo   lint / typecheck / test
 	@echo   test-integration   tests that need Postgres (run make up first)
 	@echo   migrate      apply SQL migrations to RELAY_DATABASE_URL
+	@echo   sim          run the provider simulator on localhost:8100 (realistic preset)
 	@echo   up / down / logs   docker-compose stack
 	@echo   chaos load eval eval-router eval-cache eval-evidence reproduce   (later phases)
 
@@ -44,6 +45,10 @@ test-integration:
 
 migrate:
 	uv run python -m relay.telemetry.migrate
+
+# The provider simulator over HTTP (OpenAI + Anthropic wire). Options: --scenario, --seed, --port.
+sim:
+	uv run python -m relay.simulator
 
 check: lint typecheck test
 

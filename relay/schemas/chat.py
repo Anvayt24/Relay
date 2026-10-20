@@ -151,10 +151,19 @@ class Choice(BaseModel):
     finish_reason: Literal["stop", "length"]
 
 
+class PromptTokensDetails(BaseModel):
+    cached_tokens: int = 0  # prompt tokens served from the provider's prompt cache
+
+
 class Usage(BaseModel):
-    prompt_tokens: int
+    prompt_tokens: int  # all input tokens, cached ones included (OpenAI's convention)
     completion_tokens: int
     total_tokens: int
+    # OpenAI's shape for cache hits; providers bill cached input at a discount (Phase 5).
+    prompt_tokens_details: PromptTokensDetails | None = None
+    # Tokens *written* to the prompt cache (Anthropic charges extra for these). Not part of
+    # the OpenAI wire format, so it is excluded from everything sent to clients.
+    cache_write_tokens: int = Field(default=0, exclude=True)
 
 
 class ChatResponse(BaseModel):

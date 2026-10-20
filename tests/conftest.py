@@ -1,26 +1,47 @@
+import asyncio
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+import uvicorn
 from fastapi import FastAPI
 
+from relay.admission.store import CapacityStore
 from relay.api.app import create_app
-from relay.config.tenants import ANONYMOUS
+from relay.config.loader import load_config
+from relay.config.schema import RelayConfig
 from relay.pipeline.context import RequestContext
 from relay.providers.mock import MockProvider
+from relay.providers.registry import NO_KEYS
 from relay.schemas.chat import ChatRequest, ChatResponse, Choice, ResponseMessage, Usage
 from relay.settings import Settings
 from relay.telemetry.log_writer import LogSink
 
 BASE_URL = "http://relay.test"
+TEST_CONFIG_PATH = str(Path(__file__).with_name("config") / "test.yaml")
+TEST_CONFIG: RelayConfig = load_config(TEST_CONFIG_PATH)
+TEST_PEPPER = "test-pepper"
 
 
 def test_settings(**overrides: Any) -> Settings:
     """Settings for tests: never read the developer's .env. A RELAY_DATABASE_URL set there
-    must not turn unit tests into database tests."""
-    values: dict[str, Any] = {"env": "test", "database_url": None, **overrides}
+    must not turn unit tests into database tests.
+
+    Auth is *off* by default here, mapping every request to the `test` tenant, so tests about
+    streaming or logging don't each carry key setup. Auth itself is tested explicitly, with
+    `auth_disabled=False` (tests/auth/)."""
+    values: dict[str, Any] = {
+        "env": "test",
+        "database_url": None,
+        "config_path": TEST_CONFIG_PATH,
+        "auth_disabled": True,
+        "auth_disabled_tenant": "test",
+        "key_pepper": TEST_PEPPER,
+        **overrides,
+    }
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
 
@@ -31,7 +52,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     ASGITransport calls the app in-process, so tests are fast and deterministic, yet they
     still exercise the real HTTP layer (routing, headers, status codes, serialization).
     """
-    app = create_app(test_settings())
+    app = create_app(test_settings(), provider_keys=NO_KEYS)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as c:
         yield c
@@ -48,8 +69,21 @@ def make_app() -> Callable[..., FastAPI]:
     and can inspect it afterwards (e.g. ``provider.calls``). Keyword arguments override
     settings; ``sink`` replaces the log sink."""
 
-    def _make(provider: MockProvider, *, sink: LogSink | None = None, **settings: Any) -> FastAPI:
-        return create_app(test_settings(**settings), providers={"mock": provider}, log_sink=sink)
+    def _make(
+        provider: MockProvider,
+        *,
+        sink: LogSink | None = None,
+        config: RelayConfig | None = None,
+        store: CapacityStore | None = None,
+        **settings: Any,
+    ) -> FastAPI:
+        return create_app(
+            test_settings(**settings),
+            providers={"mock": provider},
+            log_sink=sink,
+            config=config,
+            capacity_store=store,
+        )
 
     return _make
 
@@ -62,9 +96,9 @@ def ctx() -> RequestContext:
     )
     return RequestContext(
         request_id="test-req",
-        tenant=ANONYMOUS,
+        tenant=TEST_CONFIG.tenants["test"],
         request=request,
-        route=ANONYMOUS.route,
+        route="default",
         priority="interactive",
         cohort=None,
         policy_version="test",
@@ -82,3 +116,39 @@ def chat_response() -> ChatResponse:
         choices=[Choice(message=ResponseMessage(content="ok"), finish_reason="stop")],
         usage=Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
     )
+
+
+class _Server(uvicorn.Server):
+    """uvicorn with an Event that fires once it is listening (no polling for readiness)."""
+
+    def __init__(self, config: uvicorn.Config) -> None:
+        super().__init__(config)
+        self.ready = asyncio.Event()
+
+    async def startup(self, sockets: Any = None) -> None:
+        await super().startup(sockets)
+        self.ready.set()
+
+
+@pytest.fixture
+async def live_server() -> AsyncIterator[Callable[[Any], Awaitable[str]]]:
+    """Serve an ASGI app on a real localhost socket; returns its base URL.
+
+    Only for what an in-process transport cannot show: a connection that drops mid-body exists
+    only on a real connection. Still hermetic: 127.0.0.1, port 0 (the OS picks a free one).
+    """
+    servers: list[tuple[_Server, asyncio.Task[None]]] = []
+
+    async def start(app: Any) -> str:
+        # log_level critical: dropped-connection tests make uvicorn log an expected traceback.
+        server = _Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="critical"))
+        task = asyncio.create_task(server.serve())
+        await asyncio.wait_for(server.ready.wait(), timeout=10)
+        servers.append((server, task))
+        port = server.servers[0].sockets[0].getsockname()[1]
+        return f"http://127.0.0.1:{port}"
+
+    yield start
+    for server, task in servers:
+        server.should_exit = True
+        await task

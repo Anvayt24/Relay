@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 
+from relay.auth.keys import display_prefix, generate_key, hash_key
+from relay.auth.store import PostgresKeyStore
 from relay.settings import Settings
 from relay.telemetry.log_writer import LogRow
 from relay.telemetry.migrate import migrate
@@ -40,9 +42,11 @@ async def schema_dsn() -> AsyncIterator[tuple[asyncpg.Connection, str]]:
 
 async def test_migrate_is_idempotent(schema_dsn: tuple[asyncpg.Connection, str]) -> None:
     conn, _ = schema_dsn
-    assert await migrate(conn) == ["0001_requests.sql"]
+    applied = await migrate(conn)
+    assert applied[0] == "0001_requests.sql"
+    assert applied == sorted(applied)  # in filename order
     assert await migrate(conn) == []  # second run: nothing left to apply
-    assert await conn.fetchval("SELECT count(*) FROM schema_migrations") == 1
+    assert await conn.fetchval("SELECT count(*) FROM schema_migrations") == len(applied)
 
 
 async def test_postgres_sink_round_trip(schema_dsn: tuple[asyncpg.Connection, str]) -> None:
@@ -71,6 +75,10 @@ async def test_postgres_sink_round_trip(schema_dsn: tuple[asyncpg.Connection, st
                 tokens_out=5,
                 latency_ms=12,
                 ttft_ms=4,
+                billed_cost_nano_usd=0,
+                list_cost_nano_usd=1400,
+                counterfactual_strong_nano_usd=14_000,
+                price_table_version="v1",
             )
             for status in ("success", "failed_midstream")
         ]
@@ -78,10 +86,12 @@ async def test_postgres_sink_round_trip(schema_dsn: tuple[asyncpg.Connection, st
     finally:
         await sink.close()
 
-    stored = await conn.fetch("SELECT request_id, status, ttft_ms FROM requests ORDER BY id")
-    assert [(r["request_id"], r["status"], r["ttft_ms"]) for r in stored] == [
-        ("dup", "success", 4),
-        ("dup", "failed_midstream", 4),
+    stored = await conn.fetch(
+        "SELECT request_id, status, ttft_ms, list_cost_nano_usd FROM requests ORDER BY id"
+    )
+    assert [tuple(r) for r in stored] == [
+        ("dup", "success", 4, 1400),
+        ("dup", "failed_midstream", 4, 1400),
     ]
 
 
@@ -93,3 +103,26 @@ async def test_status_check_constraint(schema_dsn: tuple[asyncpg.Connection, str
             "INSERT INTO requests (request_id, ts, tenant, route, priority, stream, status,"
             " latency_ms) VALUES ('x', now(), 't', 'r', 'interactive', false, 'bogus', 1)"
         )
+
+
+async def test_api_key_lookup(schema_dsn: tuple[asyncpg.Connection, str]) -> None:
+    conn, schema = schema_dsn
+    await migrate(conn)
+    key, revoked = generate_key(), generate_key()
+    for k, status in ((key, "active"), (revoked, "revoked")):
+        await conn.execute(
+            "INSERT INTO api_keys (key_hash, key_prefix, tenant, status) VALUES ($1, $2, $3, $4)",
+            hash_key(k, "pep"),
+            display_prefix(k),
+            "dev",
+            status,
+        )
+    dsn = Settings().database_url
+    store = PostgresKeyStore(f"{dsn}?options=-csearch_path%3D{schema}")
+    await store.start()
+    try:
+        assert await store.lookup(hash_key(key, "pep")) == "dev"
+        assert await store.lookup(hash_key(revoked, "pep")) is None  # revoked = gone
+        assert await store.lookup(hash_key(key, "other-pepper")) is None
+    finally:
+        await store.close()

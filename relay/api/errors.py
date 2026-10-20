@@ -5,12 +5,15 @@
 OpenAI SDKs parse this shape into typed exceptions (``RateLimitError``, ``NotFoundError``, ...).
 A gateway that is "OpenAI-compatible" only on success is not compatible.
 
-Every error response sets ``x-should-retry: false``. The Stainless-generated OpenAI SDKs obey
-this header before their own rules, which would otherwise retry 408/409/429/5xx twice. Relay
-is the single retry owner (FR-1): when it returns an error it has already retried, or retrying
-cannot help. If the SDK retried too, one request would multiply into 3x Relay's attempts
-upstream, which is the retry-storm pattern. Phase 6 revisits this for Relay's own admission
-429s, where a client retry after ``Retry-After`` is the right behavior.
+Almost every error response sets ``x-should-retry: false``. The Stainless-generated OpenAI SDKs
+obey this header before their own rules, which would otherwise retry 408/409/429/5xx twice.
+Relay is the single retry owner (FR-1): when it returns an error it has already retried, or
+retrying cannot help. If the SDK retried too, one request would multiply into 3x Relay's
+attempts upstream, which is the retry-storm pattern.
+
+The exception is Relay's own *load* refusals (``CLIENT_RETRYABLE``: tenant rate limit, queue
+full or timed out, provider paused). There Relay hasn't retried anything, and the request
+will succeed later, so the header says ``true`` and ``Retry-After`` says when.
 """
 
 from collections.abc import Sequence
@@ -22,7 +25,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from relay.api.request_id import HEADER as REQUEST_ID_HEADER
-from relay.schemas.errors import ErrorClass, RelayError
+from relay.schemas.errors import CLIENT_RETRYABLE, ErrorClass, RelayError
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -78,7 +81,7 @@ def _error_response(
     param: str | None = None,
     retry_after: str | None = None,
 ) -> JSONResponse:
-    headers = {"x-should-retry": "false"}
+    headers = {"x-should-retry": "true" if error_class in CLIENT_RETRYABLE else "false"}
     if retry_after is not None:
         headers["Retry-After"] = retry_after
     # Starlette runs the Exception/500 handler in ServerErrorMiddleware, which sits *outside*

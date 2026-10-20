@@ -67,6 +67,12 @@ class LogRow:
     tokens_out: int | None
     latency_ms: int
     ttft_ms: int | None
+    # Phase 5 (migration 0002). Money is integer nano-USD: see relay/config/pricing.py.
+    billed_cost_nano_usd: int | None = None
+    list_cost_nano_usd: int | None = None
+    counterfactual_strong_nano_usd: int | None = None  # an estimate (FR-9)
+    price_table_version: str | None = None
+    queue_wait_ms: int = 0  # Phase 6 (migration 0004): time waiting for a concurrency slot
 
 
 class LogSink(Protocol):

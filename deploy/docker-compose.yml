@@ -13,6 +13,16 @@ x-relay-image: &relay-image
   environment:
     RELAY_ENV: dev
     RELAY_DATABASE_URL: postgresql://relay:relay@postgres:5432/relay
+    # HMAC secret for API-key hashes. A fixed value is fine for local dev only; production
+    # gets it from a secret manager. `python -m relay.auth` must use the same one.
+    RELAY_KEY_PEPPER: local-dev-pepper-change-me
+    # Shared admission state: rate limits, budgets, provider pauses (Phase 6).
+    RELAY_REDIS_URL: redis://redis:6379/0
+  # Provider keys (GROQ_API_KEY, ...) from the repo's .env, if it exists. Never baked into
+  # the image.
+  env_file:
+    - path: ../.env
+      required: false
 
 services:
   # One-shot: applies SQL migrations, then exits. api waits for it to *succeed*
