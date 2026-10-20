@@ -17,6 +17,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from relay.admission.resilient import ResilientStore
 from relay.settings import Settings
 from relay.telemetry.log_writer import LogWriter
 
@@ -31,7 +32,18 @@ async def healthz() -> dict[str, str]:
 @router.get("/readyz")
 async def readyz(request: Request) -> dict[str, Any]:
     # Always 200 while serving: a degraded dependency is reported, not failed on (FR-1).
-    return {"status": "ready", "dependencies": {"postgres": _postgres_status(request)}}
+    return {
+        "status": "ready",
+        "dependencies": {"postgres": _postgres_status(request), "redis": _redis_status(request)},
+    }
+
+
+def _redis_status(request: Request) -> Literal["ok", "degraded", "disabled"]:
+    store = request.app.state.capacity_store
+    if not isinstance(store, ResilientStore):
+        return "disabled"  # in-process admission state: no Redis configured
+    # Passive, like Postgres: the last admission operation's outcome.
+    return "ok" if store.healthy else "degraded"
 
 
 def _postgres_status(request: Request) -> Literal["ok", "degraded", "disabled"]:
