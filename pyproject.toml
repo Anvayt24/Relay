@@ -71,6 +71,7 @@ branch = true
 
 [dependency-groups]
 dev = [
+    "anthropic>=1.15.0",
     "asyncpg-stubs>=0.32.0",
     "httpx2>=2.14.0",
     "mypy>=2.4.0",

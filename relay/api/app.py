@@ -35,6 +35,8 @@ from relay.providers.base import ProviderAdapter
 from relay.providers.mock import MockProvider
 from relay.routing.static import StaticRouter
 from relay.settings import Settings
+from relay.simulator.engine import Simulator
+from relay.simulator.scenario import PRESETS
 from relay.telemetry.log_writer import LogSink, LogWriter, MemorySink
 from relay.telemetry.postgres import PostgresSink
 
@@ -48,7 +50,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings()
     if providers is None:
-        providers = {"mock": MockProvider()}
+        providers = {"mock": _mock_provider(settings)}
 
     postgres: PostgresSink | None = None
     memory_fallback = False
@@ -103,3 +105,15 @@ def create_app(
     app.include_router(health.router)
     app.include_router(routes.router)
     return app
+
+
+def _mock_provider(settings: Settings) -> MockProvider:
+    if settings.sim_scenario is None:
+        return MockProvider()
+    scenario = PRESETS.get(settings.sim_scenario)
+    if scenario is None:
+        # Fail at startup, not on the first request.
+        raise ValueError(
+            f"unknown RELAY_SIM_SCENARIO {settings.sim_scenario!r}; choose from {sorted(PRESETS)}"
+        )
+    return MockProvider(simulator=Simulator.from_scenario(scenario, seed=settings.sim_seed))

@@ -37,3 +37,9 @@ class Settings(BaseSettings):
     log_flush_interval_s: float = 0.5
     # How long shutdown may spend flushing queued rows before giving up on them.
     log_shutdown_timeout_s: float = 5.0
+
+    # The mock provider. Unset: the scripted echo mock (deterministic, instant). Set to a
+    # preset name in relay/simulator/scenario.py (e.g. "realistic"): seeded, sampled latency,
+    # errors and capacity from the provider simulator.
+    sim_scenario: str | None = None
+    sim_seed: int = 0
