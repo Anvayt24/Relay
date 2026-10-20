@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from relay.config.models import MODELS
+from relay.config.loader import load_config
 from relay.schemas.errors import ErrorClass
 from relay.simulator.quality import QualitySpec, WinRate
 from relay.simulator.scenario import (
@@ -135,6 +135,7 @@ def test_cohort_quality_overrides_the_default() -> None:
 def test_presets_cover_the_mock_models_in_the_registry() -> None:
     # Relay sends provider_model ids to the mock adapter. If a preset lacked one, every
     # request for that model would fail with model_not_found under RELAY_SIM_SCENARIO.
-    mock_models = {spec.provider_model for spec in MODELS.values() if spec.provider == "mock"}
+    shipped = load_config()  # relay/config/relay.yaml
+    mock_models = {s.provider_model for s in shipped.models.values() if s.provider == "mock"}
     for name, scenario in PRESETS.items():
         assert mock_models <= set(scenario.models), name

@@ -1,0 +1,32 @@
+# The config every test app uses: simulator models only, generous limits. Tests that need
+# other shapes build a RelayConfig in Python.
+price_table_version: "test-1"
+
+providers:
+  mock: {kind: mock}
+
+models:
+  mock/cheap:  {provider: mock, provider_model: mock-cheap-v1,  tier: cheap,  price_in: 0.10, price_out: 0.40}
+  mock/strong: {provider: mock, provider_model: mock-strong-v1, tier: strong, price_in: 1.00, price_out: 4.00}
+
+routes:
+  default:
+    aliases: {relay/cheap: mock/cheap, relay/strong: mock/strong, relay/auto: mock/strong}
+  cheap_only:
+    aliases: {relay/cheap: mock/cheap}
+
+tenants:
+  test:
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 1000}
+    budget_usd_daily: 1000
+    budget_mode: soft
+    allowed_providers: [mock]
+    cohort_tags: [beta]
+  limited:
+    route: cheap_only
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 1000}
+    budget_usd_daily: 1000
+    allowed_providers: [mock]
+    allowed_models: [mock/cheap]
+    default_priority: batch
+    cohort_tags: ["lang=hi"]

@@ -1,0 +1,79 @@
+# Relay's default config (PRD §9.5). Validated at startup: an invalid file stops Relay.
+# Override with RELAY_CONFIG_PATH. API keys are never here: only the *names* of env vars.
+#
+# Prices are LIST prices, USD per 1M tokens, even for free-tier models (FR-9). Model IDs and
+# prices were checked on 2026-10-20 from partly third-party sources: verify before relying on
+# them, because free tiers and prices change often (PRD §13).
+
+price_table_version: "2026-10-20"
+
+providers:
+  mock:       {kind: mock}
+  groq:       {kind: openai, base_url: "https://api.groq.com/openai/v1", limit_scope: model,
+               api_key_env: GROQ_API_KEY, max_tokens_param: max_completion_tokens}
+  openrouter: {kind: openai, base_url: "https://openrouter.ai/api/v1", limit_scope: account,
+               api_key_env: OPENROUTER_API_KEY}      # the :free daily cap spans all models
+  gemini:     {kind: openai, base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+               limit_scope: model, api_key_env: GEMINI_API_KEY}
+  anthropic:  {kind: anthropic, base_url: "https://api.anthropic.com", limit_scope: model,
+               api_key_env: ANTHROPIC_API_KEY}
+
+models:
+  # The simulator (in-process mock). Illustrative prices, so cost features are visible locally.
+  mock/cheap:  {provider: mock, provider_model: mock-cheap-v1,  tier: cheap,  price_in: 0.10, price_out: 0.40}
+  mock/strong: {provider: mock, provider_model: mock-strong-v1, tier: strong, price_in: 1.00, price_out: 4.00}
+
+  groq/gpt-oss-20b:  {provider: groq, provider_model: "openai/gpt-oss-20b",  tier: cheap,
+                      price_in: 0.075, price_out: 0.30, billing: free}
+  groq/gpt-oss-120b: {provider: groq, provider_model: "openai/gpt-oss-120b", tier: strong,
+                      price_in: 0.15,  price_out: 0.60, billing: free}
+  # Free OpenRouter models come and go: check GET https://openrouter.ai/api/v1/models for
+  # ":free" ids before use (llama-3.3-70b:free was gone by 2026-10-20). No list price is
+  # published for this one, so list cost reads 0.
+  openrouter/lfm-2.5-2.6b-free: {provider: openrouter, provider_model: "liquid/lfm-2.5-2.6b:free",
+                                 tier: cheap, price_in: 0, price_out: 0, billing: free}
+  # Free tier: Google may use prompts. Public data only; no tenant allows it by default.
+  # 2.5-flash-lite is closed to new accounts (404, 2026-10-20). 3.1 is the cheapest Flash-Lite
+  # still offered; prices from aggregators, not Google's page: verify.
+  gemini/flash-lite: {provider: gemini, provider_model: gemini-3.1-flash-lite, tier: cheap,
+                      price_in: 0.20, price_out: 1.20, billing: free}
+  # Haiku 5.5: $0.10/$0.50 for prompts up to 100K tokens ($0.50/$2.50 above; Relay prices the
+  # short tier). A tenth of Haiku 4.5's $1/$5. Cache prices not confirmed: default to price_in.
+  anthropic/haiku: {provider: anthropic, provider_model: claude-haiku-5-5, tier: strong,
+                    price_in: 0.10, price_out: 0.50}
+
+routes:
+  default:            # simulator models: works with no provider keys at all
+    aliases: {relay/cheap: mock/cheap, relay/strong: mock/strong, relay/auto: mock/strong}
+  live:
+    aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
+    fallback_graph:   # used from Phase 7
+      groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free}, {to: anthropic/haiku}]
+      groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free}]
+  demo:               # free models only: no paid edges anywhere (PRD §13)
+    aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
+    fallback_graph:
+      groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free}]
+      groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free}]
+
+tenants:
+  dev:
+    route: default
+    limits: {rpm: 600, tpm: 2000000, concurrency: 32}
+    budget_usd_daily: 5.00
+    budget_mode: soft
+    fallback_policy: allow_degraded
+    allowed_providers: [mock, groq, openrouter, anthropic]
+  live:
+    route: live
+    limits: {rpm: 60, tpm: 200000, concurrency: 8}
+    budget_usd_daily: 2.00
+    budget_mode: hard
+    allowed_providers: [groq, openrouter, anthropic]
+  demo:
+    route: demo
+    limits: {rpm: 30, tpm: 40000, concurrency: 4}
+    budget_usd_daily: 1.00
+    budget_mode: hard
+    fallback_policy: strict    # edges must be seeded `safe` first (FR-5)
+    allowed_providers: [groq, openrouter]
