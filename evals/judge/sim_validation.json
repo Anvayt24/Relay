@@ -1,0 +1,62 @@
+{
+  "what": "simulator validation of the judge calibration (ground truth known)",
+  "results": [
+    {
+      "judge": "good",
+      "configured_sensitivity": 0.9,
+      "configured_false_loss_rate": 0.03,
+      "n": 600,
+      "true_loss_rate": 0.18833333333333332,
+      "recovered_loss_recall": {
+        "value": 0.9203539823008849,
+        "ci_low": 0.864406779661017,
+        "ci_high": 0.970873786407767
+      },
+      "recovered_kappa": {
+        "value": 0.8428633784373635,
+        "ci_low": 0.7852738217589196,
+        "ci_high": 0.8948317307692306
+      },
+      "recall_ci_contains_configured": true,
+      "status": "calibrated"
+    },
+    {
+      "judge": "mediocre",
+      "configured_sensitivity": 0.75,
+      "configured_false_loss_rate": 0.1,
+      "n": 600,
+      "true_loss_rate": 0.18833333333333332,
+      "recovered_loss_recall": {
+        "value": 0.6991150442477876,
+        "ci_low": 0.6106194690265486,
+        "ci_high": 0.7821782178217822
+      },
+      "recovered_kappa": {
+        "value": 0.554485866448177,
+        "ci_low": 0.4689980690838876,
+        "ci_high": 0.6349489271268939
+      },
+      "recall_ci_contains_configured": true,
+      "status": "uncalibrated"
+    },
+    {
+      "judge": "loss_blind",
+      "configured_sensitivity": 0.45,
+      "configured_false_loss_rate": 0.02,
+      "n": 600,
+      "true_loss_rate": 0.18833333333333332,
+      "recovered_loss_recall": {
+        "value": 0.4247787610619469,
+        "ci_low": 0.330188679245283,
+        "ci_high": 0.5130434782608696
+      },
+      "recovered_kappa": {
+        "value": 0.48352351733727694,
+        "ci_low": 0.3857142857142857,
+        "ci_high": 0.5746810107580687
+      },
+      "recall_ci_contains_configured": true,
+      "status": "uncalibrated"
+    }
+  ]
+}

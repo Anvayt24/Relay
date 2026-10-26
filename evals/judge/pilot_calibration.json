@@ -1,0 +1,54 @@
+{
+  "n": 30,
+  "abstained": 0,
+  "confusion": {
+    "tp": 6,
+    "fn": 1,
+    "fp": 5,
+    "tn": 18
+  },
+  "human_loss_rate": 0.23333333333333334,
+  "judge_loss_rate": 0.36666666666666664,
+  "kappa": {
+    "value": 0.5336787564766841,
+    "ci_low": 0.18918918918918878,
+    "ci_high": 0.8305084745762713
+  },
+  "accuracy": {
+    "value": 0.8,
+    "ci_low": 0.6666666666666666,
+    "ci_high": 0.9333333333333333
+  },
+  "loss_recall": {
+    "value": 0.8571428571428571,
+    "ci_low": 0.5454545454545454,
+    "ci_high": 1.0
+  },
+  "win_recall": {
+    "value": 0.782608695652174,
+    "ci_low": 0.6153846153846154,
+    "ci_high": 0.95
+  },
+  "annotator_self_kappa": {
+    "n": 0,
+    "kappa": NaN
+  },
+  "position_bias": {
+    "candidate_as_A": 0.35714285714285715,
+    "candidate_as_B": 0.375
+  },
+  "judge_models": [
+    "groq/gpt-oss-120b"
+  ],
+  "judge_prompt_versions": [
+    "v1"
+  ],
+  "thresholds": {
+    "kappa_min": 0.6,
+    "loss_recall_min": 0.7,
+    "n_min": 50
+  },
+  "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+  "status": "insufficient_n",
+  "pairs_sha256": "052f953627563dc9ea711784f6844141b8068b4dc16e86a4e5cecfa82a8a6976"
+}
