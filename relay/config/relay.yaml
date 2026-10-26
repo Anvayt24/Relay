@@ -24,9 +24,9 @@ models:
   mock/strong: {provider: mock, provider_model: mock-strong-v1, tier: strong, price_in: 1.00, price_out: 4.00}
 
   groq/gpt-oss-20b:  {provider: groq, provider_model: "openai/gpt-oss-20b",  tier: cheap,
-                      price_in: 0.075, price_out: 0.30, billing: free}
+                      price_in: 0.075, price_out: 0.30, billing: free, context_window: 131072}
   groq/gpt-oss-120b: {provider: groq, provider_model: "openai/gpt-oss-120b", tier: strong,
-                      price_in: 0.15,  price_out: 0.60, billing: free}
+                      price_in: 0.15,  price_out: 0.60, billing: free, context_window: 131072}
   # Free OpenRouter models come and go: check GET https://openrouter.ai/api/v1/models for
   # ":free" ids before use (llama-3.3-70b:free was gone by 2026-10-20). No list price is
   # published for this one, so list cost reads 0.
@@ -40,14 +40,19 @@ models:
   # Haiku 5.5: $0.10/$0.50 for prompts up to 100K tokens ($0.50/$2.50 above; Relay prices the
   # short tier). A tenth of Haiku 4.5's $1/$5. Cache prices not confirmed: default to price_in.
   anthropic/haiku: {provider: anthropic, provider_model: claude-haiku-5-5, tier: strong,
-                    price_in: 0.10, price_out: 0.50}
+                    price_in: 0.10, price_out: 0.50, context_window: 200000}
 
+# `cache.semantic_threshold` is MEASURED, never guessed: it is the smallest cosine similarity
+# that reached >= 99% precision on the tune split of the cache eval, with the lexical guard on
+# (evals/cache/metrics.json, `make eval-cache`). A test fails if a route is set below it.
 routes:
   default:            # simulator models: works with no provider keys at all
     aliases: {relay/cheap: mock/cheap, relay/strong: mock/strong, relay/auto: mock/strong}
+    cache: {semantic_threshold: 0.8625, lexical_guard: true}
   live:
     aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
-    fallback_graph:   # used from Phase 7
+    cache: {semantic_threshold: 0.8625, lexical_guard: true}
+    fallback_graph:   # edges start `undecided` (no evidence yet): usable only by allow_degraded
       groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free}, {to: anthropic/haiku}]
       groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free}]
   demo:               # free models only: no paid edges anywhere (PRD §13)
@@ -63,6 +68,8 @@ tenants:
     budget_usd_daily: 5.00
     budget_mode: soft
     fallback_policy: allow_degraded
+    # Exact + semantic response cache (off by default for every tenant; a tenant opts in).
+    cache: {enabled: true, semantic: true, ttl_s: 3600}
     allowed_providers: [mock, groq, openrouter, anthropic]
   live:
     route: live

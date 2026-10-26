@@ -1,0 +1,11 @@
+description: >-
+  The primary becomes 8x slower for 30 s (first tokens take seconds, not 150 ms).
+duration_s: 60
+smoke_duration_s: 12
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos
+incident_window_s: [10, 40]
+primary:
+  incidents:
+    - {start_s: 10, end_s: 40, latency_multiplier: 8}

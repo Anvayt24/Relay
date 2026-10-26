@@ -10,6 +10,7 @@ with only a Groq key still gets a working gateway.
 """
 
 import logging
+import os
 from collections.abc import Mapping
 
 from pydantic import SecretStr
@@ -36,10 +37,23 @@ class ProviderKeys(BaseSettings):
         value = getattr(self, env_name.lower(), None)
         if isinstance(value, SecretStr) and value.get_secret_value():
             return value.get_secret_value()
+        # A provider declared in the YAML with its own `api_key_env` (e.g. a simulator
+        # upstream in the chaos suite): read it straight from the environment. NO_KEYS must
+        # stay empty even then, so it only applies to instances that read the environment.
+        if value is None and self.model_config.get("env_file") is not None:
+            return os.environ.get(env_name) or None
         return None
 
 
-NO_KEYS = ProviderKeys(_env_file=None)
+class _NoKeys(ProviderKeys):
+    """No keys at all, not even from the environment: for tests that must never reach a
+    real provider."""
+
+    def get(self, env_name: str) -> str | None:
+        return None
+
+
+NO_KEYS = _NoKeys(_env_file=None)
 
 
 def build_adapters(

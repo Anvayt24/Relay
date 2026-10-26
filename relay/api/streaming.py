@@ -56,6 +56,36 @@ STREAM_HEADERS = {
 }
 
 
+class OpenStreams:
+    """How many streaming responses are in flight, so shutdown can wait for them (PRD §8).
+
+    An Event rather than a polling loop: shutdown wakes up the moment the last stream ends.
+    """
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+
+    def enter(self) -> None:
+        self.count += 1
+        self._idle.clear()
+
+    def exit(self) -> None:
+        self.count -= 1
+        if self.count == 0:
+            self._idle.set()
+
+    async def wait_idle(self, timeout_s: float) -> bool:
+        """True if every stream ended within ``timeout_s``."""
+        try:
+            async with asyncio.timeout(timeout_s):
+                await self._idle.wait()
+        except TimeoutError:
+            return False
+        return True
+
+
 class RelayStreamingResponse(StreamingResponse):
     def __init__(
         self,
@@ -77,9 +107,15 @@ class RelayStreamingResponse(StreamingResponse):
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Open streams are counted so shutdown can wait for them (app.py: _drain).
+        tracker = getattr(scope["app"].state, "open_streams", None) if "app" in scope else None
+        if isinstance(tracker, OpenStreams):
+            tracker.enter()
         try:
             await super().__call__(scope, receive, send)
         finally:
+            if isinstance(tracker, OpenStreams):
+                tracker.exit()
             # Order matters: stop producing (body, then upstream), then record what happened.
             # aclose() is safe on a generator that already finished, or never started.
             await self._body.aclose()
@@ -118,7 +154,8 @@ class RelayStreamingResponse(StreamingResponse):
                 yield encode_chunk(chunk)
         except (ProviderError, TimeoutError) as e:
             self._outcome = Outcome("failed_midstream", ErrorClass.STREAM_BROKEN)
-            provider = self._ctx.attempts[-1].provider if self._ctx.attempts else "unknown"
+            served = self._ctx.served_by
+            provider = served[0] if served else "unknown"
             FAILED_MIDSTREAM.labels(provider=provider).inc()
             reason = "upstream went idle" if isinstance(e, TimeoutError) else str(e)
             yield encode_error(ErrorClass.STREAM_BROKEN, f"stream broken: {reason}")
@@ -133,18 +170,25 @@ class RelayStreamingResponse(StreamingResponse):
         for choice in chunk.choices:
             if choice.delta.content:
                 self._ctx.forwarded_tokens += text_tokens(choice.delta.content)
+                self._ctx.reply_parts.append(choice.delta.content)  # for the cache write-back
+            if choice.finish_reason is not None:
+                self._ctx.finish_reason = choice.finish_reason
 
-    def _relay_extension(self) -> dict[str, str]:
+    def _relay_extension(self) -> dict[str, str | bool]:
         # Extra top-level key on the final usage chunk (FR-1). OpenAI SDKs ignore unknown
         # fields. The cost lives here because a header can't carry it: headers were sent with
         # the first chunk, before the usage (and so the cost) was known.
-        attempt = self._ctx.attempts[-1]
-        extension = {
+        served = self._ctx.served_by
+        if served is None:
+            raise RuntimeError("streaming a response nobody served")
+        extension: dict[str, str | bool] = {
             "request_id": self._ctx.request_id,
             "route": self._ctx.route,
-            "provider": attempt.provider,
-            "model": attempt.model,
+            "provider": served[0],
+            "model": served[1],
         }
+        if self._ctx.degraded:
+            extension["degraded"] = True
         if self._ctx.cost is not None:
             extension["cost_usd"] = usd(self._ctx.cost.billed_nano)
             extension["list_cost_usd"] = usd(self._ctx.cost.list_nano)

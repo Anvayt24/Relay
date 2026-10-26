@@ -18,6 +18,7 @@ import logging
 import math
 import time
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 from prometheus_client import Counter
@@ -112,20 +113,49 @@ def seconds_to_utc_midnight(now: datetime) -> float:
     return (tomorrow - now).total_seconds()
 
 
+# Which models a request might be served by: the dispatcher's candidate plan (primary first,
+# then fallbacks). Without a planner, only the routed model.
+type ModelPlanner = Callable[[RequestContext], Sequence[str]]
+
+
 class ReservationStage:
     name = "reservation"
 
-    def __init__(self, store: CapacityStore, config: RelayConfig) -> None:
+    def __init__(
+        self, store: CapacityStore, config: RelayConfig, *, planner: ModelPlanner | None = None
+    ) -> None:
         self._store = store
         self._config = config
+        self._planner = planner
+
+    def _worst_case(self, ctx: RequestContext, prompt: int) -> tuple[int, int]:
+        """(tokens, billed nano-USD) to hold: the maximum over every model this request might
+        be served by, each at its own output cap and price (FR-4: "size the USD reservation
+        for the most expensive model reachable through the route's fallback graph"). The
+        settle at the end charges only what the serving model really cost."""
+        assert ctx.decision is not None
+        names = self._planner(ctx) if self._planner else [ctx.decision.model]
+        tokens_needed, nano = 0, 0
+        for name in names:
+            model = self._config.models[name]
+            needed = prompt + tokens.output_cap(ctx.request, model)
+            pricing = Pricing(
+                model=model, strong=None, price_table_version=self._config.price_table_version
+            )
+            cost = pricing.cost(
+                Usage(prompt_tokens=prompt, completion_tokens=needed - prompt, total_tokens=needed)
+            )
+            tokens_needed = max(tokens_needed, needed)
+            nano = max(nano, cost.billed_nano)
+        return tokens_needed, nano
 
     async def process(self, ctx: RequestContext) -> StageResult:
         decision = ctx.decision
         if decision is None:
             raise RuntimeError("ReservationStage needs a route decision; RouteStage goes first")
-        tenant, model = ctx.tenant, self._config.models[decision.model]
+        tenant = ctx.tenant
         prompt = tokens.prompt_tokens(ctx.request)
-        needed = prompt + tokens.output_cap(ctx.request, model)
+        needed, nano = self._worst_case(ctx, prompt)
 
         # 1. Tokens per minute. A request bigger than the whole bucket can never fit: that's a
         #    client error (lower max_tokens), not a "wait and retry".
@@ -152,14 +182,8 @@ class ReservationStage:
                 retry_after_s=wait,
             )
 
-        # 2. Money: the worst case (estimated prompt + the full output cap) at this model's
-        #    billed price. Phase 7 sizes this for the most expensive fallback instead.
-        pricing = Pricing(
-            model=model, strong=None, price_table_version=self._config.price_table_version
-        )
-        nano = pricing.cost(
-            Usage(prompt_tokens=prompt, completion_tokens=needed - prompt, total_tokens=needed)
-        ).billed_nano
+        # 2. Money: the worst case (estimated prompt + the full output cap) at the billed
+        #    price of the most expensive model the request might reach.
         now = datetime.now(UTC)
         budget = f"{tenant.id}:{now:%Y%m%d}"  # a new key each UTC day: the daily reset
         res_id = uuid.uuid4().hex
@@ -237,7 +261,8 @@ class ReservationStage:
             actual_nano = 0
 
         if actual_tokens > r.tokens or (r.held and actual_nano > r.nano):
-            provider = ctx.attempts[-1].provider if ctx.attempts else "none"
+            served = ctx.served
+            provider = served.provider if served else "none"
             UNDERESTIMATE.labels(provider=provider).inc()
 
         tenant = ctx.tenant

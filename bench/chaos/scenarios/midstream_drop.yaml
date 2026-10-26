@@ -1,0 +1,9 @@
+description: >-
+  Half of the primary's replies are cut off partway through (streams only break after the first byte, so no gateway can fail over transparently).
+duration_s: 40
+smoke_duration_s: 10
+rps: 20
+stream_ratio: 1.0
+relay_tenant: chaos
+primary:
+  errors: {stream_broken: 0.5}

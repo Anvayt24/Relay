@@ -12,8 +12,12 @@ I/O and no background tasks. Anything that needs a running event loop or opens c
 (the DB pool, the log writer's task) is started in ``lifespan`` and stopped there in reverse
 order.
 
-Uvicorn runs lifespan shutdown only after in-flight requests have finished, streams
-included. By the time the writer flushes, every request's log row is already queued.
+**Shutdown drain** (PRD §8). On SIGTERM uvicorn stops accepting connections and waits for
+in-flight requests (bounded by ``--timeout-graceful-shutdown``) before running lifespan
+shutdown. The lifespan then marks the app as draining (``/readyz`` answers 503), waits up to
+``shutdown_drain_s`` for any streams still open, and only then flushes the log writer and
+closes the stores and adapters. By the time the writer flushes, every request's log row is
+already queued.
 
 Run it with ``uvicorn relay.api.app:create_app --factory``.
 """
@@ -34,8 +38,13 @@ from relay.admission.store import CapacityStore, MemoryStore
 from relay.api import health, routes
 from relay.api.errors import install_error_handlers
 from relay.api.request_id import RequestIdMiddleware
+from relay.api.streaming import OpenStreams
 from relay.auth.service import Authenticator
 from relay.auth.store import CachedKeyStore, KeyStore, MemoryKeyStore, PostgresKeyStore
+from relay.cache.embed import Embedder, FastEmbedder, HashEmbedder
+from relay.cache.exact import ExactStore, MemoryExactStore, RedisExactStore
+from relay.cache.semantic import MemorySemanticStore, PgVectorStore, SemanticStore
+from relay.cache.stage import CacheStage
 from relay.config.loader import load_config
 from relay.config.models import available_models
 from relay.config.schema import RelayConfig
@@ -45,6 +54,10 @@ from relay.pipeline.stages import LogStage, ProviderStage, RouteStage
 from relay.providers.base import ProviderAdapter
 from relay.providers.mock import MockProvider
 from relay.providers.registry import ProviderKeys, build_adapters
+from relay.reliability.breaker import BreakerRegistry
+from relay.reliability.dispatch import ReliableDispatcher
+from relay.reliability.edges import SeededEdgeStates
+from relay.reliability.retry_budget import RetryBudget
 from relay.routing.static import StaticRouter
 from relay.settings import Settings
 from relay.simulator.engine import Simulator
@@ -63,15 +76,23 @@ def create_app(
     key_store: KeyStore | None = None,
     config: RelayConfig | None = None,
     capacity_store: CapacityStore | None = None,
+    exact_cache: ExactStore | None = None,
+    semantic_cache: SemanticStore | None = None,
+    embedder: Embedder | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     # Invalid YAML (dangling alias, cyclic fallback graph, ...) raises here: Relay won't start.
     config = config or load_config(settings.config_path)
     if providers is None:
-        # The mock provider is always there; real providers only when their key is set.
+        # Mock providers are always there (each `kind: mock` provider is its own in-process
+        # simulator); real providers only when their key is set.
         keys = provider_keys if provider_keys is not None else ProviderKeys()
         providers = {
-            "mock": _mock_provider(settings),
+            **{
+                name: _mock_provider(settings)
+                for name, spec in config.providers.items()
+                if spec.kind == "mock"
+            },
             **build_adapters(keys, settings, config.providers),
         }
     models = available_models(config.models, providers)
@@ -104,19 +125,40 @@ def create_app(
 
     # Built once per app, not per request. Constructors validate the config (dangling
     # aliases, models without an adapter), so a bad config fails at startup.
+    # Cache backends come from settings unless a caller (a test) hands them in.
+    default_exact, default_semantic, default_embedder = _cache_backends(settings, config)
+    exact_cache = exact_cache or default_exact
+    semantic_cache = semantic_cache or default_semantic
+    embedder = embedder or default_embedder
+    cache_stage = CacheStage(config, exact=exact_cache, semantic=semantic_cache, embedder=embedder)
+    rel = config.reliability
+    dispatcher = ReliableDispatcher(
+        config,
+        models,
+        providers,
+        store=store,
+        pause=PauseState(store, config),
+        breakers=BreakerRegistry(rel),
+        retry_budget=RetryBudget(
+            ratio=rel.retry_budget_ratio,
+            minimum=rel.retry_budget_min,
+            window_s=rel.retry_budget_window_s,
+        ),
+        edge_states=SeededEdgeStates(config),
+        first_token_ceiling_s=settings.first_token_timeout_s,
+    )
     pipeline = Pipeline(
         [
             LogStage(writer),  # first in, so its finalize is last out and sees the outcome
             AdmissionStage(store, queue, replica_count=settings.replica_count),
+            cache_stage,  # a hit short-circuits: no routing, reservation or provider call
             RouteStage(StaticRouter(config, models), config),
-            ReservationStage(store, config),  # after routing: the price needs the model
-            ProviderStage(
-                config,
-                models,
-                providers,
-                first_token_timeout_s=settings.first_token_timeout_s,
-                pause=PauseState(store, config),
+            # After routing (the price needs the model), and sized for every model the
+            # dispatcher might fall back to.
+            ReservationStage(
+                store, config, planner=lambda ctx: [c.model for c in dispatcher.plan(ctx)]
             ),
+            ProviderStage(dispatcher),
         ]
     )
 
@@ -129,16 +171,30 @@ def create_app(
         if authenticator is not None:
             await authenticator.store.start()
         await store.start()
+        await exact_cache.start()
+        if semantic_cache is not None:
+            await semantic_cache.start()
+        embedder_task = (
+            embedder.start_in_background() if isinstance(embedder, FastEmbedder) else None
+        )
         writer.start()
         try:
             yield
         finally:
+            app.state.draining = True
+            await _drain(app, settings.shutdown_drain_s)
+            await cache_stage.drain()
+            if embedder_task is not None:
+                embedder_task.cancel()
             await writer.stop(settings.log_shutdown_timeout_s)
             if postgres is not None:
                 await postgres.close()
             if authenticator is not None:
                 await authenticator.store.close()
             await store.close()
+            await exact_cache.close()
+            if semantic_cache is not None:
+                await semantic_cache.close()
             for adapter in providers.values():
                 await adapter.aclose()  # release pooled provider connections
 
@@ -153,12 +209,53 @@ def create_app(
     app.state.auth_disabled_tenant = auth_disabled_tenant
     app.state.authenticator = authenticator
     app.state.log_writer = writer
+    app.state.dispatcher = dispatcher
+    app.state.cache_stage = cache_stage
+    app.state.draining = False
+    app.state.open_streams = OpenStreams()  # RelayStreamingResponse keeps this current
 
     install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health.router)
     app.include_router(routes.router)
     return app
+
+
+def _cache_backends(
+    settings: Settings, config: RelayConfig
+) -> tuple[ExactStore, SemanticStore | None, Embedder | None]:
+    """The cache's storage, chosen from what is configured (PRD §8 degradation matrix: every
+    layer is optional and fails open).
+
+    - exact: Redis when configured, else in-process;
+    - semantic + embedder: only if some tenant turned semantic caching on and the embedder
+      isn't "off". Postgres/pgvector when a database is configured, else in-process.
+    """
+    exact: ExactStore = (
+        RedisExactStore(settings.redis_url) if settings.redis_url else MemoryExactStore()
+    )
+    wants_semantic = any(t.cache.enabled and t.cache.semantic for t in config.tenants.values())
+    if not wants_semantic or settings.embedder == "off":
+        return exact, None, None
+    embedder: Embedder = (
+        HashEmbedder()
+        if settings.embedder == "hash"
+        else FastEmbedder(onnx_threads=settings.embedder_onnx_threads)
+    )
+    semantic: SemanticStore
+    if settings.database_url:
+        semantic = PgVectorStore(settings.database_url)
+    else:
+        logger.warning("RELAY_DATABASE_URL not set: the semantic cache is in-process only")
+        semantic = MemorySemanticStore()
+    return exact, semantic, embedder
+
+
+async def _drain(app: FastAPI, timeout_s: float) -> None:
+    """Wait (bounded) for open streams to finish before the stores they settle against close."""
+    streams: OpenStreams = app.state.open_streams
+    if not await streams.wait_idle(timeout_s):
+        logger.warning("shutdown with %d streams still open", streams.count)
 
 
 def _mock_provider(settings: Settings) -> MockProvider:

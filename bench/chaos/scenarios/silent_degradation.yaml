@@ -1,0 +1,10 @@
+description: >-
+  The primary keeps answering 200 but its quality falls from 0.95 to 0.75 halfway through. Nothing in the error rate changes; only ground truth shows it. Relay cannot detect this until the evidence engine (Phase 12), so this scenario is the before picture.
+duration_s: 40
+smoke_duration_s: 10
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos
+measure_truth: true
+primary:
+  quality: {base: 0.95, shift_to: 0.75, shift_at_fraction: 0.5}

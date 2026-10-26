@@ -72,35 +72,46 @@ async def chat_completions(
     # A bad value is a validation error → 400 with param "x-relay-priority".
     x_relay_priority: Annotated[Priority | None, Header()] = None,
     x_relay_cohort: Annotated[str | None, Header()] = None,
+    x_relay_cache: Annotated[str | None, Header()] = None,
 ) -> ChatResponse | Response:
     if body.ignored_fields:
         IGNORED_FIELDS.inc(len(body.ignored_fields))
 
+    priority = x_relay_priority or tenant.default_priority
     ctx = RequestContext(
         request_id=request.state.request_id,
         tenant=tenant,
         request=body,
         route=tenant.route,
-        priority=x_relay_priority or tenant.default_priority,
+        priority=priority,
         # Only tags on the tenant's allowlist are kept; anything else becomes "other", so
         # clients can't create unbounded cohorts in the evidence data (FR-1).
         cohort=tenant.cohort(x_relay_cohort),
         policy_version=STATIC_POLICY_VERSION,
-        deadline=time.monotonic() + settings.request_timeout_s,
+        # Fixed now, per tenant and priority: every retry and fallback hop must fit inside it.
+        deadline=time.monotonic() + tenant.deadlines.total_for(priority),
         stream=body.stream,
+        cache_no_store=(x_relay_cache or "").lower() == "no-store",
     )
 
     # Any failure up to here, including a stream that broke before its first content chunk,
     # is raised as RelayError and becomes an ordinary JSON error response.
     result = await pipeline.run(ctx)
 
-    if ctx.decision is None or not ctx.attempts:
-        raise RuntimeError("pipeline returned a response without a decision and an attempt")
+    served = ctx.served_by
+    if served is None:
+        raise RuntimeError("pipeline returned a response nobody served")
+    # The provider and model that *answered*: after a fallback not the router's choice, and
+    # on a cache hit "relay-cache" with the model that originally produced the answer (FR-1).
     relay_headers = {
         "X-Relay-Route": ctx.route,
-        "X-Relay-Provider": ctx.attempts[-1].provider,
-        "X-Relay-Model": ctx.decision.model,
+        "X-Relay-Provider": served[0],
+        "X-Relay-Model": served[1],
+        "X-Relay-Cache": ctx.cache.status if ctx.cache else "bypass",
     }
+    if ctx.degraded:
+        # Only ever "true"; absent otherwise (ADR 0010).
+        relay_headers["X-Relay-Degraded"] = "true"
 
     if isinstance(result, StreamResult):
         # From here the response owns the stream *and* the pipeline's finalize.

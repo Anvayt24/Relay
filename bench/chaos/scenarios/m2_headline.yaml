@@ -1,0 +1,12 @@
+description: >-
+  PRD M2: 20% of the primary's calls return 429, plus one 60 s hard outage.
+duration_s: 120
+smoke_duration_s: 20
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos
+incident_window_s: [30, 90]
+primary:
+  errors: {rate_limited: 0.2, retry_after_s: 1}
+  incidents:
+    - {start_s: 30, end_s: 90, errors: {server_error: 1.0}}

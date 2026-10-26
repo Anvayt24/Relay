@@ -74,17 +74,20 @@ async def test_raw_response_exposes_relay_headers(
 
 
 @pytest.mark.parametrize(
-    ("provider_and_sdk", "sdk_error"),
+    ("provider_and_sdk", "sdk_error", "relay_calls"),
     [
-        (MockBehavior(error=ErrorClass.SERVER_ERROR), openai.InternalServerError),
-        (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError),
-        (MockBehavior(error=ErrorClass.RATE_LIMITED, retry_after_s=1), openai.RateLimitError),
+        # Transient 5xx: Relay itself retries once (Appendix B), so 2 upstream calls.
+        (MockBehavior(error=ErrorClass.SERVER_ERROR), openai.InternalServerError, 2),
+        (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError, 2),
+        # A 429 is never retried on the same limit: the pause state waits it out.
+        (MockBehavior(error=ErrorClass.RATE_LIMITED, retry_after_s=1), openai.RateLimitError, 1),
     ],
     indirect=["provider_and_sdk"],
 )
 async def test_sdk_does_not_retry_errors_relay_returns(
     provider_and_sdk: tuple[MockProvider, openai.AsyncOpenAI],
     sdk_error: type[openai.APIStatusError],
+    relay_calls: int,
 ) -> None:
     provider, sdk = provider_and_sdk
 
@@ -93,9 +96,9 @@ async def test_sdk_does_not_retry_errors_relay_returns(
             model="relay/auto", messages=[{"role": "user", "content": "hi"}]
         )
 
-    # Without `x-should-retry: false` the SDK would retry 429/5xx twice by default, so the
-    # provider would see 3 calls. Relay is the single retry owner (PRD FR-1).
-    assert provider.calls == 1
+    # Exactly Relay's own attempts. Without `x-should-retry: false` the SDK would retry
+    # 429/5xx twice by default, tripling them. Relay is the single retry owner (PRD FR-1).
+    assert provider.calls == relay_calls
     body = exc.value.body
     assert isinstance(body, dict)
     assert body["type"] == exc.value.code

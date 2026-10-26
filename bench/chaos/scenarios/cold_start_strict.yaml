@@ -1,0 +1,11 @@
+description: >-
+  The same 30 s outage, but the fallback edge has no evidence yet (undecided) and the tenant is strict. Relay must refuse to fail over (FR-5): this is the documented cold-start behavior, not a bug. It is shown so nobody mistakes 503s here for a regression.
+duration_s: 60
+smoke_duration_s: 12
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos_cold
+incident_window_s: [10, 40]
+primary:
+  incidents:
+    - {start_s: 10, end_s: 40, errors: {server_error: 1.0}}

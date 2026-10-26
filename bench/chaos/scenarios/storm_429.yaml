@@ -1,0 +1,11 @@
+description: >-
+  The primary answers 429 to 80% of calls for 30 s (Retry-After 2 s).
+duration_s: 60
+smoke_duration_s: 12
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos
+incident_window_s: [10, 40]
+primary:
+  incidents:
+    - {start_s: 10, end_s: 40, errors: {rate_limited: 0.8, retry_after_s: 2}}

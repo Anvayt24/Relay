@@ -22,11 +22,13 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
-    # End-to-end budget per request (PRD FR-5 interactive default). Phase 7 enforces it.
+    # The adapters' read timeout for a non-streaming call. The tenant's deadline
+    # (config `deadlines`, enforced by relay/reliability) usually ends a request sooner.
     request_timeout_s: float = 60.0
-    # Streaming (PRD FR-5 defaults). First token: how long to wait for the first content
-    # chunk before giving up, while that is still an ordinary HTTP error. Idle: the longest
-    # allowed silence *between* chunks once streaming has started.
+    # Streaming (PRD FR-5 defaults). First token: an operator ceiling on how long any one
+    # attempt waits for its first content chunk; the tenant's `deadlines.first_token_s` and
+    # the time left can only shorten it. Idle: the longest allowed silence *between* chunks
+    # once streaming has started.
     first_token_timeout_s: float = 15.0
     stream_idle_timeout_s: float = 30.0
     # TCP + TLS handshake with a provider. Short on purpose: a provider that can't even
@@ -41,6 +43,18 @@ class Settings(BaseSettings):
     log_flush_interval_s: float = 0.5
     # How long shutdown may spend flushing queued rows before giving up on them.
     log_shutdown_timeout_s: float = 5.0
+    # How long shutdown waits for open streams to finish (after uvicorn's own graceful
+    # shutdown) before closing the stores they settle against.
+    shutdown_drain_s: float = 10.0
+
+    # Prompt embeddings for the semantic cache (and the router, Phase 11). fastembed loads
+    # BAAI/bge-small-en-v1.5 (ONNX) in the background; "hash" is a cheap fake for tests and
+    # quick local runs; "off" disables the semantic layer. Only loaded when some tenant has
+    # `cache.semantic` on.
+    embedder: Literal["fastembed", "hash", "off"] = "fastembed"
+    # Threads ONNX Runtime uses inside one embedding. Its default (every visible core)
+    # oversubscribes a CPU-limited container and is ~10x slower: see relay/cache/embed.py.
+    embedder_onnx_threads: int = 1
 
     # The mock provider. Unset: the scripted echo mock (deterministic, instant). Set to a
     # preset name in relay/simulator/scenario.py (e.g. "realistic"): seeded, sampled latency,

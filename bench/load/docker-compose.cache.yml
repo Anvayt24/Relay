@@ -1,0 +1,38 @@
+# M1(b): the load stack with the response cache on and Postgres + pgvector behind it, so every
+# request pays for the full pipeline: embedding, a vector lookup, and the cache write-back.
+# Used as an override: docker compose -f docker-compose.yml -f docker-compose.cache.yml ...
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    volumes:
+      - ../../deploy/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["python", "-m", "relay.telemetry.migrate"]
+    restart: "no"
+    environment:
+      RELAY_DATABASE_URL: postgresql://relay:relay@postgres:5432/relay
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    environment:
+      RELAY_DATABASE_URL: postgresql://relay:relay@postgres:5432/relay
+      # The cache is on for the `load` tenant in this override's config (see relay.load.cache.yaml).
+      RELAY_CONFIG_PATH: /etc/relay/relay.load.cache.yaml
+    volumes:
+      - ./relay.load.cache.yaml:/etc/relay/relay.load.cache.yaml:ro
+    depends_on:
+      migrate: {condition: service_completed_successfully}

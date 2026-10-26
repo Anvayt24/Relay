@@ -46,6 +46,7 @@ from relay.schemas.errors import ErrorClass, ProviderError
 from relay.simulator import anthropic_wire, openai_wire
 from relay.simulator.capacity import LimitState
 from relay.simulator.engine import Call, CapacityExceeded, Simulator
+from relay.simulator.scenario import ErrorMix
 
 ErrorFn = Callable[[ProviderError, LimitState | None], tuple[int, dict[str, Any], dict[str, str]]]
 
@@ -105,7 +106,7 @@ ANTHROPIC = _Wire(
 )
 
 
-def create_sim_app(simulator: Simulator) -> FastAPI:
+def create_sim_app(simulator: Simulator, *, control: bool = False) -> FastAPI:
     # A separate app, not mounted on Relay: the simulator is the *upstream*. It shares none
     # of Relay's middleware, auth or error handling, as a real provider would not.
     app = FastAPI(title="Relay provider simulator", openapi_url=None)
@@ -145,6 +146,47 @@ def create_sim_app(simulator: Simulator) -> FastAPI:
         assert simulator.scenario is not None  # truth() succeeded, so there is a scenario
         q = simulator.scenario.q(model, cohort, index)
         return {"model": model, "cohort": cohort, "index": index, "correct": correct, "q": q}
+
+    @app.get("/sim/stats")
+    async def stats(bucket_ms: int = 100) -> dict[str, Any]:
+        # Upstream load as the provider saw it: totals, per model, and a histogram of
+        # arrivals per bucket (default 100 ms) for burst analysis.
+        histogram: dict[int, int] = {}
+        for t in simulator.arrivals:
+            b = int(t * 1000 // bucket_ms)
+            histogram[b] = histogram.get(b, 0) + 1
+        return {
+            "calls": simulator.calls,
+            "by_model": dict(simulator.calls_by_model),
+            "bucket_ms": bucket_ms,
+            "arrivals": histogram,
+        }
+
+    if control:
+        # Operator endpoints. Only mounted with --control: a simulator that anyone can
+        # break is fine on localhost for chaos runs, never on a shared network.
+        @app.post("/sim/control")
+        async def inject(body: dict[str, Any]) -> dict[str, Any]:
+            try:
+                incident = simulator.inject(
+                    duration_s=float(body["duration_s"]),
+                    models=tuple(body.get("models", ())),
+                    errors=ErrorMix(**body["errors"]) if body.get("errors") else None,
+                    latency_multiplier=float(body.get("latency_multiplier", 1.0)),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"start_s": incident.start_s, "end_s": incident.end_s}
+
+        @app.post("/sim/clear")
+        async def clear() -> dict[str, str]:
+            simulator.clear_incidents()
+            return {"status": "cleared"}
+
+        @app.post("/sim/reset")
+        async def reset() -> dict[str, str]:
+            simulator.reset_stats()
+            return {"status": "reset"}
 
     return app
 

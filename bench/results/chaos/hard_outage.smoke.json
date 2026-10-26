@@ -1,0 +1,160 @@
+{
+  "scenario": "hard_outage",
+  "description": "The primary fails every call (500) for 30 s.",
+  "smoke": true,
+  "duration_s": 12.0,
+  "rps": 20.0,
+  "runs": 1,
+  "clients": {
+    "relay": {
+      "success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0
+        ]
+      },
+      "p95_s": {
+        "mean": 0.6559999999999491,
+        "stdev": 0.0,
+        "runs": [
+          0.6559999999999491
+        ]
+      },
+      "p99_s": {
+        "mean": 1.0470000000004802,
+        "stdev": 0.0,
+        "runs": [
+          1.0470000000004802
+        ]
+      },
+      "retry_amplification": {
+        "mean": 1.1842105263157894,
+        "stdev": 0.0,
+        "runs": [
+          1.1842105263157894
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 7.142857142857143,
+        "stdev": 0.0,
+        "runs": [
+          7.142857142857143
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0
+        ]
+      }
+    },
+    "naive_retry": {
+      "success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0
+        ]
+      },
+      "p95_s": {
+        "mean": 8.719000000000051,
+        "stdev": 0.0,
+        "runs": [
+          8.719000000000051
+        ]
+      },
+      "p99_s": {
+        "mean": 9.17199999999957,
+        "stdev": 0.0,
+        "runs": [
+          9.17199999999957
+        ]
+      },
+      "retry_amplification": {
+        "mean": 2.4473684210526314,
+        "stdev": 0.0,
+        "runs": [
+          2.4473684210526314
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 2.3636363636363638,
+        "stdev": 0.0,
+        "runs": [
+          2.3636363636363638
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0
+        ]
+      }
+    }
+  },
+  "raw": {
+    "relay": [
+      {
+        "requests": 228,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.23400000000037835,
+        "p95_s": 0.6559999999999491,
+        "p99_s": 1.0470000000004802,
+        "retry_amplification": 1.1842105263157894,
+        "primary_calls": 81,
+        "fallback_calls": 189,
+        "primary_burstiness": 7.142857142857143,
+        "incident_success_rate": 1.0
+      }
+    ],
+    "naive_retry": [
+      {
+        "requests": 228,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.7190000000000509,
+        "p95_s": 8.719000000000051,
+        "p99_s": 9.17199999999957,
+        "retry_amplification": 2.4473684210526314,
+        "primary_calls": 558,
+        "fallback_calls": 0,
+        "primary_burstiness": 2.3636363636363638,
+        "incident_success_rate": 1.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+# What every chaos scenario shares: the two simulated upstreams' normal behavior. A scenario
+# file overrides only what makes it different (errors, incidents, quality). Illustrative
+# numbers, not measured from any real provider: every result says "simulator" (PRD §13).
+models:
+  latency: {ttft_median_s: 0.15, ttft_p95_s: 0.4, tokens_per_s: 200, tokens_per_s_jitter: 0.2}
+  length: {median_tokens: 12, p95_tokens: 30}
+primary: {quality: 0.95}
+fallback: {quality: 0.9}

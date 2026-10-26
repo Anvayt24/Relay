@@ -1,0 +1,60 @@
+name: Nightly
+
+# Long-running checks that don't belong on every pull request (PRD §11.4): the full chaos
+# suite, the load test, and the @live provider smoke. Also runnable by hand.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make chaos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chaos-results
+          path: bench/results/chaos/
+
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make load
+      - uses: actions/upload-artifact@v4
+        with:
+          name: load-results
+          path: bench/results/load/
+
+  # Real providers, a handful of tiny requests each. Skipped (not failed) when a key isn't set
+  # as a repository secret. Use the cheapest models only.
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      RELAY_LIVE_PROVIDERS: groq,openrouter,anthropic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest -m live tests/providers/test_live_smoke.py

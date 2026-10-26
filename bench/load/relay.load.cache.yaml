@@ -1,0 +1,18 @@
+# M1(b): the same as relay.load.yaml, but the tenant has the exact + semantic cache on.
+price_table_version: "load-1"
+providers:
+  sim: {kind: openai, base_url: "http://sim:8100/v1", api_key_env: LOAD_KEY, limit_scope: model}
+models:
+  load/model: {provider: sim, provider_model: sim-model, tier: strong, price_in: 1.0, price_out: 2.0}
+routes:
+  main:
+    aliases: {relay/auto: load/model, relay/strong: load/model}
+    cache: {semantic_threshold: 0.8625, lexical_guard: true}
+tenants:
+  load:
+    route: main
+    limits: {rpm: 100000000, tpm: 100000000000, concurrency: 100000}
+    budget_usd_daily: 100000000
+    budget_mode: soft
+    allowed_providers: [sim]
+    cache: {enabled: true, semantic: true, ttl_s: 600}
