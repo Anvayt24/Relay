@@ -43,7 +43,10 @@ from relay.simulator.plan import (
     SampledPlanner,
     ScriptedPlanner,
 )
-from relay.simulator.scenario import Incident, Scenario
+from relay.simulator.scenario import ErrorMix, Incident, Scenario
+
+# Arrival timestamps kept for /sim/stats. A bound, so a long soak can't grow without limit.
+MAX_ARRIVALS = 2_000_000
 
 
 class CapacityExceeded(ProviderError):
@@ -89,6 +92,12 @@ class Simulator:
         # Incident windows count from the first request, not from construction. A slow
         # startup (or a test that builds the simulator early) must not eat into the schedule.
         self._t0: float | None = None
+        # Runtime control (`/sim/control`, Phase 8): incidents added while running, and what
+        # reached the simulator when. Chaos measures load *where it lands*, so retry
+        # amplification and synchronized retry bursts are read from here.
+        self._runtime_incidents: list[Incident] = []
+        self.calls_by_model: dict[str, int] = {}
+        self.arrivals: list[float] = []  # seconds since the first request, one per call
 
     @classmethod
     def scripted(cls, behavior: MockBehavior | None = None) -> Self:
@@ -112,6 +121,12 @@ class Simulator:
         if index is None:
             index = next(self._indexes)
         model = req.model
+        now = self.clock.now()
+        if self._t0 is None:
+            self._t0 = now
+        self.calls_by_model[model] = self.calls_by_model.get(model, 0) + 1
+        if len(self.arrivals) < MAX_ARRIVALS:
+            self.arrivals.append(now - self._t0)
         if self.scenario is not None and model not in self.scenario.models:
             raise ProviderError(ErrorClass.MODEL_NOT_FOUND, f"The model `{model}` does not exist")
 
@@ -134,14 +149,56 @@ class Simulator:
         return self.scenario.correct(self.seed, model, cohort, index)
 
     def _incident(self, model: str) -> Incident | None:
-        if self.scenario is None or not self.scenario.incidents:
+        scheduled = self.scenario.incidents if self.scenario is not None else ()
+        if not scheduled and not self._runtime_incidents:
             return None
         now = self.clock.now()
         if self._t0 is None:
             self._t0 = now
         elapsed = now - self._t0
-        # If windows overlap, the first one listed wins.
-        return next((i for i in self.scenario.incidents if i.applies(model, elapsed)), None)
+        # If windows overlap, the first one listed wins; runtime incidents come first, so an
+        # operator's "kill it now" overrides the schedule.
+        return next(
+            (i for i in (*self._runtime_incidents, *scheduled) if i.applies(model, elapsed)),
+            None,
+        )
+
+    # ------------------------------------------------------------ runtime control
+    def inject(
+        self,
+        *,
+        duration_s: float,
+        models: tuple[str, ...] = (),
+        errors: ErrorMix | None = None,
+        latency_multiplier: float = 1.0,
+    ) -> Incident:
+        """Start an incident *now* (an outage, a 429 storm, a latency spike) for
+        ``duration_s``. The chaos runner and the demo's chaos panel use this."""
+        now = self.clock.now()
+        if self._t0 is None:
+            self._t0 = now
+        start = now - self._t0
+        incident = Incident(
+            start_s=start,
+            end_s=start + duration_s,
+            models=models,
+            errors=errors,
+            latency_multiplier=latency_multiplier,
+        )
+        self._runtime_incidents.insert(0, incident)
+        return incident
+
+    def clear_incidents(self) -> None:
+        self._runtime_incidents.clear()
+
+    def reset_stats(self) -> None:
+        """Forget the call counts, arrival times and runtime incidents, and restart the
+        incident clock at the next request. Lets one simulator process serve many runs."""
+        self.calls = 0
+        self.calls_by_model.clear()
+        self.arrivals.clear()
+        self._runtime_incidents.clear()
+        self._t0 = None
 
 
 class Call:

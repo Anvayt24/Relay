@@ -1,0 +1,11 @@
+description: >-
+  The primary fails every call (500) for 30 s.
+duration_s: 60
+smoke_duration_s: 12
+rps: 20
+stream_ratio: 0.5
+relay_tenant: chaos
+incident_window_s: [10, 40]
+primary:
+  incidents:
+    - {start_s: 10, end_s: 40, errors: {server_error: 1.0}}

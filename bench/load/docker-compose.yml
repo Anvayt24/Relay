@@ -1,0 +1,77 @@
+# The load-test stack (PRD E-D, M1): k6 -> nginx -> N Relay replicas -> simulator, with Redis
+# for shared admission state. Separate from deploy/docker-compose.yml so it never touches the
+# dev stack. Every image is pinned (a floating tag could change a benchmark under you).
+#
+#   docker compose -f bench/load/docker-compose.yml up -d --scale api=2 --wait
+#   python -m bench.load            # runs it all and writes bench/results/load/
+name: relay-load
+
+x-relay: &relay
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  volumes:
+    - ./relay.load.yaml:/etc/relay/relay.load.yaml:ro
+
+services:
+  sim:
+    <<: *relay
+    command: ["python", "-m", "relay.simulator", "--scenario-file", "/etc/relay/sim.yaml", "--host", "0.0.0.0", "--port", "8100"]
+    volumes:
+      - ./sim.yaml:/etc/relay/sim.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/v1/models', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *relay
+    # No access log: it is a synchronous write per request, which a benchmark would measure
+    # instead of the gateway. Two worker processes use the replica's two vCPUs (one Python
+    # event loop uses one core); each worker is one "replica" to the admission state, which
+    # is why RELAY_REPLICA_COUNT below is workers x containers.
+    command: ["uvicorn", "relay.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--workers", "2"]
+    environment:
+      RELAY_ENV: dev
+      RELAY_AUTH_DISABLED: "true"
+      RELAY_AUTH_DISABLED_TENANT: load
+      RELAY_CONFIG_PATH: /etc/relay/relay.load.yaml
+      RELAY_REDIS_URL: ${REDIS_URL-redis://redis:6379/0}
+      RELAY_REPLICA_COUNT: ${REPLICA_COUNT:-2}
+      RELAY_DATABASE_URL: ""
+      LOAD_KEY: not-a-secret
+    depends_on:
+      sim: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    # The M1 reference machine: one replica on 2 vCPU (PRD). Recorded in the results.
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  lb:
+    image: nginx:1.27.2-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api: {condition: service_healthy}
+
+  k6:
+    image: grafana/k6:0.55.0
+    profiles: ["k6"]
+    volumes:
+      - ./k6.js:/scripts/k6.js:ro
+      - ../results/load:/out
+    depends_on:
+      lb: {condition: service_started}

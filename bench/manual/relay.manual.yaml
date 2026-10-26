@@ -1,0 +1,40 @@
+# Hands-on playground config: two simulated upstreams you can break by hand.
+#
+#   terminal 1:  uv run python -m relay.simulator --scenario ideal --port 8101 --control
+#   terminal 2:  uv run python -m relay.simulator --scenario ideal --port 8102 --control
+#   terminal 3:  MANUAL_KEY=x RELAY_ENV=dev RELAY_AUTH_DISABLED=true \
+#                RELAY_AUTH_DISABLED_TENANT=manual RELAY_CONFIG_PATH=bench/manual/relay.manual.yaml \
+#                uv run uvicorn relay.api.app:create_app --factory --port 8000
+#
+# "primary" is the model Relay tries first; "backup" is its fallback. Kill the primary with
+#   POST http://127.0.0.1:8101/sim/control  {"duration_s": 60, "errors": {"server_error": 1.0}}
+# and watch Relay switch to the backup. Try changing `seed_state`, `fallback_policy` or the
+# deadlines below, restart Relay, and see what changes.
+price_table_version: "manual-1"
+
+providers:
+  primary: {kind: openai, base_url: "http://127.0.0.1:8101/v1", api_key_env: MANUAL_KEY, limit_scope: model}
+  backup:  {kind: openai, base_url: "http://127.0.0.1:8102/v1", api_key_env: MANUAL_KEY, limit_scope: model}
+
+models:
+  sim/primary:  {provider: primary, provider_model: mock-strong-v1, tier: strong, price_in: 1.0, price_out: 2.0}
+  sim/fallback: {provider: backup,  provider_model: mock-cheap-v1,  tier: cheap,  price_in: 0.1, price_out: 0.2}
+
+routes:
+  main:
+    aliases: {relay/auto: sim/primary, relay/strong: sim/primary, relay/cheap: sim/fallback}
+    # safe = usable by a `strict` tenant. Change to `undecided` to see strict refuse to fail over.
+    fallback_graph:
+      sim/primary: [{to: sim/fallback, seed_state: safe}]
+    cache: {semantic_threshold: 0.8625, lexical_guard: true}
+
+tenants:
+  manual:
+    route: main
+    limits: {rpm: 600, tpm: 2000000, concurrency: 32}
+    budget_usd_daily: 5.00
+    budget_mode: soft
+    fallback_policy: strict          # try allow_degraded
+    allowed_providers: [primary, backup]
+    deadlines: {first_token_s: 2, interactive_s: 15, batch_s: 30}
+    cache: {enabled: true, semantic: true, ttl_s: 600}

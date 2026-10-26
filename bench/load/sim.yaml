@@ -1,0 +1,7 @@
+# The upstream for load tests: fixed small latency, no failures, no capacity limit. The load
+# test measures what the *gateway* adds, so the upstream must be boring and identical for the
+# direct and the through-Relay runs.
+models:
+  sim-model:
+    latency: {ttft_median_s: 0.02, ttft_p95_s: 0.02, tokens_per_s: 2000}
+    length: {median_tokens: 8, p95_tokens: 8}

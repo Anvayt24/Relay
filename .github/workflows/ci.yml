@@ -55,6 +55,20 @@ jobs:
       - run: make migrate
       - run: make test-integration
 
+  # Compressed fault scenarios (PRD §11.4: "short chaos smoke" per PR). Simulators and Relay
+  # run as localhost subprocesses; no Docker, no network. Asserts documented behavior with
+  # spread-tolerant thresholds, not exact numbers (interleaving isn't deterministic).
+  chaos-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make chaos-smoke
+
   # Proves the image builds and the whole stack comes up healthy (PRD M0: "make up starts the stack").
   compose-smoke:
     runs-on: ubuntu-latest
