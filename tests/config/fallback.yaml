@@ -1,0 +1,69 @@
+# Fallback-graph shapes for the Phase 7 reliability tests. Every provider is an in-process
+# mock; tests pass their own adapters per provider name.
+price_table_version: "test-fallback-1"
+
+providers:
+  primary: {kind: mock}
+  backup:  {kind: mock}
+  big:     {kind: mock}
+  capped:  {kind: mock, rpm: 1}
+
+models:
+  p/model:   {provider: primary, provider_model: mock-strong-v1, tier: strong,
+              price_in: 1.00, price_out: 4.00, context_window: 8000}
+  b/model:   {provider: backup,  provider_model: mock-cheap-v1,  tier: cheap,
+              price_in: 0.10, price_out: 0.40, context_window: 8000}
+  big/model: {provider: big,     provider_model: mock-strong-v1, tier: strong,
+              price_in: 2.00, price_out: 8.00, context_window: 128000, default_max_tokens: 4096}
+  c/model:   {provider: capped,  provider_model: mock-cheap-v1,  tier: cheap,
+              price_in: 0.10, price_out: 0.40}
+
+routes:
+  none:        # no fallback graph at all
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+  safe:
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: b/model, seed_state: safe}]
+  gated:       # an edge with no evidence yet
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: b/model}]
+  mixed:       # one edge in each state, listed worst first
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: b/model, seed_state: unsafe}, {to: big/model}, {to: c/model, seed_state: safe}]
+  deep:        # ungated chain p -> b -> big, plus a direct p -> c
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: b/model, quality_gate: none}, {to: c/model, quality_gate: none}]
+      b/model: [{to: big/model, quality_gate: none}]
+  context:     # only big/model has a larger window than the primary
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: b/model, quality_gate: none}, {to: big/model, quality_gate: none}]
+  capped:      # the fallback provider has its own rpm limit
+    aliases: {relay/auto: p/model, relay/strong: p/model}
+    fallback_graph:
+      p/model: [{to: c/model, quality_gate: none}, {to: b/model, quality_gate: none}]
+
+tenants:
+  strict:
+    route: safe
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 1000}
+    budget_usd_daily: 1000
+    budget_mode: soft
+    allowed_providers: [primary, backup, big, capped]
+  degraded:
+    route: gated
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 1000}
+    budget_usd_daily: 1000
+    budget_mode: soft
+    fallback_policy: allow_degraded
+    allowed_providers: [primary, backup, big, capped]
+  private:     # may never send prompts to `backup`
+    route: safe
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 1000}
+    budget_usd_daily: 1000
+    budget_mode: soft
+    allowed_providers: [primary, big, capped]

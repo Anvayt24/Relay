@@ -20,7 +20,8 @@ from typing import Literal, Self
 
 
 class ErrorClass(StrEnum):
-    # Provider-side classes (PRD Appendix B). Retry/breaker rules arrive in Phase 7.
+    # Provider-side classes (PRD Appendix B). What Relay does about each one (retry, fall
+    # back, count toward the breaker) is in relay/reliability/policy.py.
     RATE_LIMITED = "rate_limited"
     QUOTA_EXHAUSTED = "quota_exhausted"
     OVERLOADED = "overloaded"
@@ -46,6 +47,9 @@ class ErrorClass(StrEnum):
     PROVIDER_PAUSED = "provider_paused"  # 429: the provider said "slow down"; all replicas wait
     BUDGET_EXCEEDED = "budget_exceeded"  # 429: the tenant's daily budget is spent
     BUDGET_UNAVAILABLE = "budget_unavailable"  # 503: can't check the budget (Redis down)
+    # Reliability (Phase 7): Relay tried, retried and fell back as far as policy allows.
+    NO_USABLE_FALLBACK = "no_usable_fallback"  # 503: every candidate failed or was unusable
+    DEADLINE_EXCEEDED = "deadline_exceeded"  # 504: the request's deadline ran out first
 
 
 # What the client sees when a provider fails with a given class. The guiding question is:
