@@ -85,6 +85,14 @@ def _pair(fam: Family, split: str, kind: str, a: str, b: str, label: int) -> dic
     return {"family": fam.name, "split": split, "kind": kind, "a": a, "b": b, "label": label}
 
 
+def write_text(name: str, text: str) -> None:
+    # newline="\n": Path.write_text on Windows would emit CRLF, git stores LF, and the sha256 in
+    # the manifest would then differ between a Windows checkout and Linux CI (the manifest test
+    # caught exactly this).
+    with open(HERE / name, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
 async def build(seed: int) -> None:
     pairs = generate(seed)
     prompts = sorted({p for pair in pairs for p in (pair["a"], pair["b"])})  # type: ignore[type-var]
@@ -93,10 +101,8 @@ async def build(seed: int) -> None:
     vectors = await embedder.embed_many(prompts)
     await embedder.close()
 
-    (HERE / "pairs.jsonl").write_text(
-        "".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8"
-    )
-    (HERE / "prompts.json").write_text(json.dumps(prompts, ensure_ascii=False), encoding="utf-8")
+    write_text("pairs.jsonl", "".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs))
+    write_text("prompts.json", json.dumps(prompts, ensure_ascii=False))
     np.save(HERE / "embeddings.npy", np.asarray(vectors, dtype=np.float32))
     manifest = {
         "seed": seed,
@@ -111,7 +117,7 @@ async def build(seed: int) -> None:
             for f in ("pairs.jsonl", "prompts.json", "embeddings.npy")
         },
     }
-    (HERE / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_text("manifest.json", json.dumps(manifest, indent=2))
     print(json.dumps({k: v for k, v in manifest.items() if k != "sha256"}, indent=2))
 
 

@@ -8,7 +8,7 @@
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "label_note": "positive iff the cached answer is an acceptable answer to the new prompt (constructed: same fact, different wording); not human-judged",
     "sha256": {
-      "pairs.jsonl": "78361c6ef7132019489526bf36fc89b11f7d433057f7feaca14a70de1624ec1e",
+      "pairs.jsonl": "0edcdd0153acb30ac52eb607472da719478b7f89513d45878ff4fd89ebb346ec",
       "prompts.json": "b6a9a3b8043b0e2dd1d8e14756117048fa76b87320ef2f295defc099f7bc4dd2",
       "embeddings.npy": "f1702adb8a38a1c38e05e1541df87558b9ed2b037e3d14904a8a3099097aff89"
     }

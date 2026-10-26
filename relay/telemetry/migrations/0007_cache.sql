@@ -1,7 +1,14 @@
 -- Phase 10: the semantic cache (PRD FR-6, §9.4; ADR 0015).
 --
--- pgvector must already be installed in the database (deploy/postgres/init.sql does this for
--- the compose stack). The cache stores embeddings and replies, never prompt text.
+-- The cache stores embeddings and replies, never prompt text.
+--
+-- Enable pgvector here rather than relying on deploy/postgres/init.sql: that script only runs
+-- when a data volume is first created, so a database that came from anywhere else (a CI service
+-- container, a managed Postgres, an older volume) would fail this migration with
+-- `type "vector" does not exist`. IF NOT EXISTS makes it a no-op where it is already enabled.
+-- The server must ship the extension (the pgvector/pgvector images do), and creating it needs a
+-- privileged role; on a managed database, an admin may need to enable it once.
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE cache_entries (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

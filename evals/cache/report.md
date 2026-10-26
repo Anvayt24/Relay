@@ -9,4 +9,4 @@ Threshold chosen on **tune** as the smallest with precision >= 99%; everything b
 | off | 0.9450 | 99.22% (lower 95%: 98.00%) | 26.6% (24.3-29.0) | 61.5% |
 | on | 0.8625 | 99.35% (lower 95%: 98.53%) | 42.7% (40.1-45.1) | 98.9% |
 
-The production configuration is the guard **on**. Wrong hits by kind (test): guard off {'near_miss': 3}, guard on {'near_miss': 4}.
+The production configuration is the guard **on**. Wrong hits on test, by kind: guard off {'near_miss': 3}, guard on {'near_miss': 4}.
