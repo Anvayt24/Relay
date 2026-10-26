@@ -73,6 +73,28 @@ class LogRow:
     counterfactual_strong_nano_usd: int | None = None  # an estimate (FR-9)
     price_table_version: str | None = None
     queue_wait_ms: int = 0  # Phase 6 (migration 0004): time waiting for a concurrency slot
+    # Phase 7 (migration 0005).
+    fallback_hops: int = 0
+    degraded: bool = False
+    policy_version: str | None = None
+    cache_status: str | None = None  # Phase 10 (migration 0007): hit | miss | bypass
+    # Not a column: written to the `attempts` table, one row each, in the same transaction.
+    attempts: tuple["AttemptRow", ...] = ()
+
+
+@dataclass(frozen=True)
+class AttemptRow:
+    """One row of the ``attempts`` table (PRD §9.4): a call or a skip, in order."""
+
+    request_id: str
+    hop: int
+    retry: int
+    provider: str
+    model: str
+    error_class: str | None
+    skipped_reason: str | None
+    latency_ms: int
+    ts: datetime
 
 
 class LogSink(Protocol):

@@ -1,6 +1,7 @@
 import asyncio
+import random
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -9,13 +10,19 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
-from relay.admission.store import CapacityStore
+from relay.admission.pause import PauseState
+from relay.admission.store import CapacityStore, MemoryStore
 from relay.api.app import create_app
 from relay.config.loader import load_config
 from relay.config.schema import RelayConfig
 from relay.pipeline.context import RequestContext
+from relay.providers.base import ProviderAdapter
 from relay.providers.mock import MockProvider
 from relay.providers.registry import NO_KEYS
+from relay.reliability.breaker import BreakerRegistry
+from relay.reliability.dispatch import ReliableDispatcher
+from relay.reliability.edges import SeededEdgeStates
+from relay.reliability.retry_budget import RetryBudget
 from relay.schemas.chat import ChatRequest, ChatResponse, Choice, ResponseMessage, Usage
 from relay.settings import Settings
 from relay.telemetry.log_writer import LogSink
@@ -70,16 +77,20 @@ def make_app() -> Callable[..., FastAPI]:
     settings; ``sink`` replaces the log sink."""
 
     def _make(
-        provider: MockProvider,
+        provider: MockProvider | None = None,
         *,
+        providers: Mapping[str, ProviderAdapter] | None = None,
         sink: LogSink | None = None,
         config: RelayConfig | None = None,
         store: CapacityStore | None = None,
         **settings: Any,
     ) -> FastAPI:
+        # One provider for the common case; `providers` for fallback tests with several.
+        if providers is None:
+            providers = {"mock": provider or MockProvider()}
         return create_app(
             test_settings(**settings),
-            providers={"mock": provider},
+            providers=providers,
             log_sink=sink,
             config=config,
             capacity_store=store,
@@ -115,6 +126,45 @@ def chat_response() -> ChatResponse:
         model="mock/strong",
         choices=[Choice(message=ResponseMessage(content="ok"), finish_reason="stop")],
         usage=Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+
+
+async def _no_sleep(_: float) -> None:
+    return None
+
+
+def build_dispatcher(
+    config: RelayConfig,
+    providers: Mapping[str, ProviderAdapter],
+    *,
+    store: CapacityStore | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    first_token_ceiling_s: float = 1.0,
+    pause: bool = True,
+    seed: int = 0,
+) -> ReliableDispatcher:
+    """A dispatcher wired like the app's, with test-friendly defaults: backoff sleeps return
+    at once (the jitter is still drawn, from a seeded RNG), and every clock is injectable."""
+    store = store or MemoryStore(clock=clock)
+    rel = config.reliability
+    return ReliableDispatcher(
+        config,
+        {name: spec for name, spec in config.models.items() if spec.provider in providers},
+        providers,
+        store=store,
+        pause=PauseState(store, config, rng=random.Random(seed)) if pause else None,
+        breakers=BreakerRegistry(rel, clock=clock),
+        retry_budget=RetryBudget(
+            ratio=rel.retry_budget_ratio,
+            minimum=rel.retry_budget_min,
+            window_s=rel.retry_budget_window_s,
+            clock=clock,
+        ),
+        edge_states=SeededEdgeStates(config),
+        first_token_ceiling_s=first_token_ceiling_s,
+        rng=random.Random(seed),
+        clock=clock,
+        sleep=_no_sleep,
     )
 
 

@@ -9,6 +9,9 @@ Writes use ``COPY`` (asyncpg's ``copy_records_to_table``), Postgres's bulk-load 
 ``COPY`` streams the whole batch in a single round trip, skipping per-row statement overhead.
 For batches of hundreds of rows, that is typically an order of magnitude faster than
 ``INSERT``, which is the reason the writer batches at all.
+
+A batch is two COPYs, ``requests`` then ``attempts``, in **one transaction**: a request row
+is never visible without its attempt rows, and a retried batch never leaves orphans behind.
 """
 
 from collections.abc import Sequence
@@ -16,9 +19,11 @@ from dataclasses import astuple, fields
 
 import asyncpg
 
-from relay.telemetry.log_writer import LogRow
+from relay.telemetry.log_writer import AttemptRow, LogRow
 
-COLUMNS = [f.name for f in fields(LogRow)]
+# `attempts` is a nested tuple on LogRow, written to its own table.
+COLUMNS = [f.name for f in fields(LogRow) if f.name != "attempts"]
+ATTEMPT_COLUMNS = [f.name for f in fields(AttemptRow)]
 
 
 class PostgresSink:
@@ -42,7 +47,11 @@ class PostgresSink:
     async def write(self, rows: Sequence[LogRow]) -> None:
         if self._pool is None:
             raise RuntimeError("PostgresSink.write() called before start()")
-        async with self._pool.acquire() as conn:
-            await conn.copy_records_to_table(
-                "requests", records=[astuple(row) for row in rows], columns=COLUMNS
-            )
+        requests = [tuple(getattr(row, c) for c in COLUMNS) for row in rows]
+        attempts = [astuple(a) for row in rows for a in row.attempts]
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.copy_records_to_table("requests", records=requests, columns=COLUMNS)
+            if attempts:
+                await conn.copy_records_to_table(
+                    "attempts", records=attempts, columns=ATTEMPT_COLUMNS
+                )

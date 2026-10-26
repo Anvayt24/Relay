@@ -82,22 +82,30 @@ async def test_relay_headers_on_stream(sdk: tuple[MockProvider, openai.AsyncOpen
 
 
 @pytest.mark.parametrize(
-    ("sdk", "sdk_error"),
+    ("sdk", "sdk_error", "relay_calls"),
     [
-        (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError),
+        # overloaded: Relay's own single retry (Appendix B), then the error.
+        (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError, 2),
         # The role chunk arrived, then the provider failed. Nothing had been sent to the
         # client yet, so it's still a clean HTTP error, not a broken stream.
-        (MockBehavior(fail_after_chunks=0, error=ErrorClass.RATE_LIMITED), openai.RateLimitError),
+        (
+            MockBehavior(fail_after_chunks=0, error=ErrorClass.RATE_LIMITED),
+            openai.RateLimitError,
+            1,
+        ),
     ],
     indirect=["sdk"],
 )
 async def test_failure_before_first_content_is_an_http_error(
-    sdk: tuple[MockProvider, openai.AsyncOpenAI], sdk_error: type[openai.APIStatusError]
+    sdk: tuple[MockProvider, openai.AsyncOpenAI],
+    sdk_error: type[openai.APIStatusError],
+    relay_calls: int,
 ) -> None:
     provider, client = sdk
     with pytest.raises(sdk_error):
         await client.chat.completions.create(model="relay/auto", messages=MESSAGES, stream=True)
-    assert provider.calls == 1  # x-should-retry: false holds for streams too
+    # Only Relay's attempts: x-should-retry: false holds for streams too.
+    assert provider.calls == relay_calls
 
 
 @pytest.mark.parametrize("sdk", [MockBehavior(fail_after_chunks=2)], indirect=True)

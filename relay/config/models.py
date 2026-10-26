@@ -64,6 +64,10 @@ class ModelSpec(BaseModel):
     # The output cap sent upstream when the client sets none. Anthropic requires one, and
     # Phase 6 reserves budget against it, so every request gets one.
     default_max_tokens: int = Field(default=1024, gt=0)
+    # Input + output tokens the model accepts. Only used to decide where a
+    # context_length_exceeded may fall back to (Phase 7): a target with a *larger* known
+    # window. None = unknown, and such a model is never a context-length fallback.
+    context_window: int | None = Field(default=None, gt=0)
 
 
 def available_models(

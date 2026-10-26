@@ -31,7 +31,9 @@ async def schema_dsn() -> AsyncIterator[tuple[asyncpg.Connection, str]]:
     await admin.execute(f"CREATE SCHEMA {schema}")
     # search_path on the connection makes every unqualified name (requests,
     # schema_migrations) resolve inside the throwaway schema.
-    conn = await asyncpg.connect(dsn, server_settings={"search_path": schema})
+    # `public` stays on the path after the throwaway schema: the pgvector extension's `vector`
+    # type lives there, and migration 0007 uses it.
+    conn = await asyncpg.connect(dsn, server_settings={"search_path": f"{schema},public"})
     try:
         yield conn, schema
     finally:
@@ -126,3 +128,61 @@ async def test_api_key_lookup(schema_dsn: tuple[asyncpg.Connection, str]) -> Non
         assert await store.lookup(hash_key(key, "other-pepper")) is None
     finally:
         await store.close()
+
+
+async def test_attempts_are_written_with_their_request(
+    schema_dsn: tuple[asyncpg.Connection, str],
+) -> None:
+    from relay.telemetry.log_writer import AttemptRow
+
+    conn, schema = schema_dsn
+    await migrate(conn)
+    dsn = Settings().database_url
+    assert dsn
+    sink = PostgresSink(f"{dsn}?options=-csearch_path%3D{schema}")
+    await sink.start()
+    now = datetime.now(UTC)
+    try:
+        await sink.write(
+            [
+                LogRow(
+                    request_id="r1",
+                    ts=now,
+                    tenant="t",
+                    route="live",
+                    priority="interactive",
+                    cohort=None,
+                    stream=False,
+                    provider="backup",
+                    model="b/model",
+                    tier="cheap",
+                    status="success",
+                    error_class=None,
+                    tokens_in=1,
+                    tokens_out=1,
+                    latency_ms=5,
+                    ttft_ms=None,
+                    fallback_hops=1,
+                    degraded=True,
+                    policy_version="static-v0",
+                    attempts=(
+                        AttemptRow("r1", 0, 0, "primary", "p/model", "server_error", None, 9, now),
+                        AttemptRow("r1", 0, 1, "primary", "p/model", None, "breaker_open", 0, now),
+                        AttemptRow("r1", 1, 0, "backup", "b/model", None, None, 4, now),
+                    ),
+                )
+            ]
+        )
+    finally:
+        await sink.close()
+
+    request = await conn.fetchrow("SELECT fallback_hops, degraded, policy_version FROM requests")
+    assert tuple(request or ()) == (1, True, "static-v0")
+    attempts = await conn.fetch(
+        "SELECT hop, retry, provider, error_class, skipped_reason FROM attempts ORDER BY id"
+    )
+    assert [tuple(a) for a in attempts] == [
+        (0, 0, "primary", "server_error", None),
+        (0, 1, "primary", None, "breaker_open"),
+        (1, 0, "backup", None, None),
+    ]

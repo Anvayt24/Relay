@@ -30,12 +30,14 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/readyz")
-async def readyz(request: Request) -> dict[str, Any]:
-    # Always 200 while serving: a degraded dependency is reported, not failed on (FR-1).
-    return {
-        "status": "ready",
-        "dependencies": {"postgres": _postgres_status(request), "redis": _redis_status(request)},
-    }
+async def readyz(request: Request, response: Response) -> dict[str, Any]:
+    dependencies = {"postgres": _postgres_status(request), "redis": _redis_status(request)}
+    if getattr(request.app.state, "draining", False):
+        # Shutting down: take this replica out of the load balancer (PRD §8).
+        response.status_code = 503
+        return {"status": "draining", "dependencies": dependencies}
+    # Otherwise always 200 while serving: a degraded dependency is reported, not failed on.
+    return {"status": "ready", "dependencies": dependencies}
 
 
 def _redis_status(request: Request) -> Literal["ok", "degraded", "disabled"]:
