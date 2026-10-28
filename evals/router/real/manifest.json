@@ -1,0 +1,21 @@
+{
+  "world": "REAL run; judge UNCALIBRATED (no human labels at M7 scale); not reproducible",
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "fastembed_version": "0.9.0",
+  "near_duplicate_cosine": 0.95,
+  "gold_per_split_cap": 150,
+  "source_pairs_sha256": "69502419719eaee32312777464e9e2d08894fdbce1b0e3b67734d8ba5c84e696",
+  "pairs_total": 150,
+  "abstentions_dropped": 0,
+  "human_labels": 0,
+  "candidate_model": "groq/gpt-oss-20b",
+  "reference_model": "groq/gpt-oss-120b",
+  "judge_model": "gemini/flash-lite",
+  "judge_prompt_version": "v1",
+  "label": "y = 1 if the judge says the cheap answer is win-or-tie vs the strong answer. y_true is null unless a human labeled the pair (then it is the gold subset). The judge is uncalibrated: nothing here may drive a decision.",
+  "rows": 150,
+  "sha256": {
+    "prompts.jsonl": "021b50c12fc43cbd3bb3b1855c06fa4d028fb6ae25efd76d47227e2f791742ba",
+    "embeddings.npy": "373ba4de82f4fde3119a7972c3935713b1982e229bc74ed472eff109128345fe"
+  }
+}

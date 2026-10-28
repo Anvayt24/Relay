@@ -32,6 +32,12 @@ models:
   # published for this one, so list cost reads 0.
   openrouter/lfm-2.5-2.6b-free: {provider: openrouter, provider_model: "liquid/lfm-2.5-2.6b:free",
                                  tier: cheap, price_in: 0, price_out: 0, billing: free}
+  # A free OpenRouter model used as a judge in the Phase 11 real run (a different family from the
+  # gpt-oss candidates, ADR 0014). No route uses it. Free model IDs come and go: check
+  # GET https://openrouter.ai/api/v1/models for ":free" ids before use.
+  openrouter/gemma-4-31b-free: {provider: openrouter, provider_model: "google/gemma-4-31b-it:free",
+                                tier: cheap, price_in: 0, price_out: 0, billing: free,
+                                context_window: 262144}
   # Free tier: Google may use prompts. Public data only; no tenant allows it by default.
   # 2.5-flash-lite is closed to new accounts (404, 2026-10-20). 3.1 is the cheapest Flash-Lite
   # still offered; prices from aggregators, not Google's page: verify.
@@ -49,6 +55,13 @@ routes:
   default:            # simulator models: works with no provider keys at all
     aliases: {relay/cheap: mock/cheap, relay/strong: mock/strong, relay/auto: mock/strong}
     cache: {semantic_threshold: 0.8625, lexical_guard: true}
+    # relay/auto is decided by a trained router (PRD FR-7): cheap when its estimated
+    # P(cheap answer is win-or-tie) >= threshold, else strong. The threshold is MEASURED on a
+    # validation split (evals/router, `make eval-router`) and a test fails if this route is set
+    # below it. The artifact is trained on a SIMULATED world (ADR 0018): it demonstrates the
+    # machinery on the simulator models, not real-world savings. A missing or invalid artifact
+    # routes relay/auto to strong. `live` and `demo` have no router: their judge is uncalibrated.
+    router: {artifact: ../routing/artifacts/sim-world.json, threshold: 0.82}
   live:
     aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
     cache: {semantic_threshold: 0.8625, lexical_guard: true}
