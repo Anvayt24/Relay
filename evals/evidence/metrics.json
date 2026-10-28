@@ -1,0 +1,820 @@
+{
+  "coverage": {
+    "target": 0.93,
+    "runs_per_cell": 1000,
+    "bootstrap_resamples": 500,
+    "cells": [
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.98,
+        "bootstrap": 0.937,
+        "wald_width": 0.1552,
+        "bootstrap_width": 0.1234
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.961,
+        "bootstrap": 0.933,
+        "wald_width": 0.1921,
+        "bootstrap_width": 0.1773
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.949,
+        "bootstrap": 0.93,
+        "wald_width": 0.202,
+        "bootstrap_width": 0.1865
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.979,
+        "bootstrap": 0.924,
+        "wald_width": 0.1353,
+        "bootstrap_width": 0.107
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.948,
+        "bootstrap": 0.927,
+        "wald_width": 0.1539,
+        "bootstrap_width": 0.1423
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.942,
+        "bootstrap": 0.884,
+        "wald_width": 0.156,
+        "bootstrap_width": 0.1374
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.922,
+        "bootstrap": 0.875,
+        "wald_width": 0.1032,
+        "bootstrap_width": 0.0782
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.924,
+        "bootstrap": 0.903,
+        "wald_width": 0.1126,
+        "bootstrap_width": 0.1033
+      },
+      {
+        "n_human": 50,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.937,
+        "bootstrap": 0.86,
+        "wald_width": 0.1127,
+        "bootstrap_width": 0.0937
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.988,
+        "bootstrap": 0.905,
+        "wald_width": 0.149,
+        "bootstrap_width": 0.1087
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.95,
+        "bootstrap": 0.921,
+        "wald_width": 0.1894,
+        "bootstrap_width": 0.1749
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.955,
+        "bootstrap": 0.929,
+        "wald_width": 0.2008,
+        "bootstrap_width": 0.1845
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.984,
+        "bootstrap": 0.857,
+        "wald_width": 0.1321,
+        "bootstrap_width": 0.1003
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.939,
+        "bootstrap": 0.925,
+        "wald_width": 0.1516,
+        "bootstrap_width": 0.1415
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.953,
+        "bootstrap": 0.9,
+        "wald_width": 0.1571,
+        "bootstrap_width": 0.1378
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.939,
+        "bootstrap": 0.877,
+        "wald_width": 0.1039,
+        "bootstrap_width": 0.0756
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.91,
+        "bootstrap": 0.893,
+        "wald_width": 0.1116,
+        "bootstrap_width": 0.1019
+      },
+      {
+        "n_human": 50,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.929,
+        "bootstrap": 0.803,
+        "wald_width": 0.1111,
+        "bootstrap_width": 0.0892
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.96,
+        "bootstrap": 0.928,
+        "wald_width": 0.1063,
+        "bootstrap_width": 0.0954
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.95,
+        "bootstrap": 0.934,
+        "wald_width": 0.1339,
+        "bootstrap_width": 0.1285
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.95,
+        "bootstrap": 0.928,
+        "wald_width": 0.1393,
+        "bootstrap_width": 0.1323
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.966,
+        "bootstrap": 0.927,
+        "wald_width": 0.0896,
+        "bootstrap_width": 0.0779
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.936,
+        "bootstrap": 0.927,
+        "wald_width": 0.1074,
+        "bootstrap_width": 0.1013
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.952,
+        "bootstrap": 0.936,
+        "wald_width": 0.1099,
+        "bootstrap_width": 0.1032
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.964,
+        "bootstrap": 0.932,
+        "wald_width": 0.0737,
+        "bootstrap_width": 0.0652
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.946,
+        "bootstrap": 0.926,
+        "wald_width": 0.0828,
+        "bootstrap_width": 0.0772
+      },
+      {
+        "n_human": 100,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.941,
+        "bootstrap": 0.907,
+        "wald_width": 0.0804,
+        "bootstrap_width": 0.0733
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.972,
+        "bootstrap": 0.927,
+        "wald_width": 0.0966,
+        "bootstrap_width": 0.0827
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.954,
+        "bootstrap": 0.938,
+        "wald_width": 0.1306,
+        "bootstrap_width": 0.1244
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.955,
+        "bootstrap": 0.945,
+        "wald_width": 0.1376,
+        "bootstrap_width": 0.1302
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.971,
+        "bootstrap": 0.899,
+        "wald_width": 0.0844,
+        "bootstrap_width": 0.0716
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.948,
+        "bootstrap": 0.941,
+        "wald_width": 0.1059,
+        "bootstrap_width": 0.1004
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.945,
+        "bootstrap": 0.927,
+        "wald_width": 0.107,
+        "bootstrap_width": 0.0996
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.96,
+        "bootstrap": 0.909,
+        "wald_width": 0.0704,
+        "bootstrap_width": 0.0608
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.948,
+        "bootstrap": 0.938,
+        "wald_width": 0.0822,
+        "bootstrap_width": 0.0768
+      },
+      {
+        "n_human": 100,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.942,
+        "bootstrap": 0.903,
+        "wald_width": 0.0813,
+        "bootstrap_width": 0.0732
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.946,
+        "bootstrap": 0.945,
+        "wald_width": 0.0719,
+        "bootstrap_width": 0.0695
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.95,
+        "bootstrap": 0.948,
+        "wald_width": 0.0865,
+        "bootstrap_width": 0.0847
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.957,
+        "bootstrap": 0.952,
+        "wald_width": 0.0895,
+        "bootstrap_width": 0.0877
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.942,
+        "bootstrap": 0.94,
+        "wald_width": 0.0578,
+        "bootstrap_width": 0.055
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.962,
+        "bootstrap": 0.963,
+        "wald_width": 0.0684,
+        "bootstrap_width": 0.0666
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.957,
+        "bootstrap": 0.952,
+        "wald_width": 0.0688,
+        "bootstrap_width": 0.0665
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.939,
+        "bootstrap": 0.93,
+        "wald_width": 0.0458,
+        "bootstrap_width": 0.0432
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.944,
+        "bootstrap": 0.938,
+        "wald_width": 0.0526,
+        "bootstrap_width": 0.0502
+      },
+      {
+        "n_human": 250,
+        "n_judge": 500,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.937,
+        "bootstrap": 0.94,
+        "wald_width": 0.0515,
+        "bootstrap_width": 0.0494
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "good",
+        "wald": 0.977,
+        "bootstrap": 0.954,
+        "wald_width": 0.0604,
+        "bootstrap_width": 0.0571
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "mediocre",
+        "wald": 0.952,
+        "bootstrap": 0.94,
+        "wald_width": 0.0817,
+        "bootstrap_width": 0.0797
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.8,
+        "judge": "loss_blind",
+        "wald": 0.938,
+        "bootstrap": 0.941,
+        "wald_width": 0.0853,
+        "bootstrap_width": 0.0829
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "good",
+        "wald": 0.959,
+        "bootstrap": 0.936,
+        "wald_width": 0.0507,
+        "bootstrap_width": 0.0473
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "mediocre",
+        "wald": 0.959,
+        "bootstrap": 0.944,
+        "wald_width": 0.0658,
+        "bootstrap_width": 0.064
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.9,
+        "judge": "loss_blind",
+        "wald": 0.956,
+        "bootstrap": 0.946,
+        "wald_width": 0.0659,
+        "bootstrap_width": 0.0639
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "good",
+        "wald": 0.957,
+        "bootstrap": 0.948,
+        "wald_width": 0.0421,
+        "bootstrap_width": 0.0392
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "mediocre",
+        "wald": 0.932,
+        "bootstrap": 0.927,
+        "wald_width": 0.0515,
+        "bootstrap_width": 0.0491
+      },
+      {
+        "n_human": 250,
+        "n_judge": 2000,
+        "w": 0.95,
+        "judge": "loss_blind",
+        "wald": 0.938,
+        "bootstrap": 0.932,
+        "wald_width": 0.0499,
+        "bootstrap_width": 0.0478
+      }
+    ],
+    "worst": {
+      "wald": 0.91,
+      "bootstrap": 0.803
+    },
+    "cells_below_target": {
+      "wald": 4,
+      "bootstrap": 27
+    },
+    "chosen_interval": "wald",
+    "met": false,
+    "small_n_high_w_worst": {
+      "wald": 0.91,
+      "bootstrap": 0.803
+    }
+  },
+  "detection": {
+    "w_before": 0.95,
+    "w_after": 0.85,
+    "floor": 0.9,
+    "horizon": 5000,
+    "false_alarm_target": 0.05,
+    "streams": 1000,
+    "n_human": 200,
+    "judge": "good",
+    "monitors": {
+      "none": {
+        "false_alarm_rate": 0.0,
+        "median_delay": 5000.0,
+        "detected_within_horizon": 0.0
+      },
+      "fixed_threshold": {
+        "window": 450,
+        "false_alarm_rate": 0.042,
+        "median_delay": 254.0,
+        "p25_delay": 194.0,
+        "p75_delay": 321.5,
+        "detected_within_horizon": 0.999,
+        "false_alarms_before_change": 1
+      },
+      "e1_matched": {
+        "block": 250,
+        "lambda": 1.0,
+        "z": 0.45,
+        "false_alarm_rate": 0.05,
+        "median_delay": 306.0,
+        "p25_delay": 225.0,
+        "p75_delay": 392.0,
+        "detected_within_horizon": 0.997,
+        "false_alarms_before_change": 3
+      },
+      "e1_bonferroni": {
+        "block": 250,
+        "lambda": 1.0,
+        "looks": 20,
+        "z": 2.807,
+        "false_alarm_rate": 0.0,
+        "median_delay": 4113.0,
+        "p25_delay": 1679.75,
+        "p75_delay": 4576.5,
+        "detected_within_horizon": 0.479,
+        "false_alarms_before_change": 0
+      },
+      "e1_ppi_pp_matched": {
+        "block": 250,
+        "lambda": "tuned (PPI++)",
+        "z": -0.95,
+        "false_alarm_rate": 0.045,
+        "median_delay": 852.5,
+        "p25_delay": 325.0,
+        "p75_delay": 4316.75,
+        "detected_within_horizon": 0.644,
+        "false_alarms_before_change": 6
+      },
+      "e1_ppi_pp_bonferroni": {
+        "block": 250,
+        "lambda": "tuned (PPI++)",
+        "looks": 20,
+        "z": 2.807,
+        "false_alarm_rate": 0.0,
+        "median_delay": 4530.5,
+        "p25_delay": 4263.5,
+        "p75_delay": 4768.25,
+        "detected_within_horizon": 0.002,
+        "false_alarms_before_change": 0
+      }
+    },
+    "faster_at_matched_false_alarms": "fixed_threshold",
+    "met": false
+  },
+  "sensitivity": {
+    "floor": 0.9,
+    "n_human": 200,
+    "n_judge": 2000,
+    "runs": 2000,
+    "good": {
+      "bad": {
+        "ppi": {
+          "safe": 0.0,
+          "unsafe": 0.812,
+          "undecided": 0.188
+        },
+        "judge_only": {
+          "safe": 0.0,
+          "unsafe": 1.0,
+          "undecided": 0.0
+        }
+      },
+      "good": {
+        "ppi": {
+          "safe": 0.999,
+          "unsafe": 0.0,
+          "undecided": 0.001
+        },
+        "judge_only": {
+          "safe": 1.0,
+          "unsafe": 0.0,
+          "undecided": 0.0
+        }
+      }
+    },
+    "mediocre": {
+      "bad": {
+        "ppi": {
+          "safe": 0.0005,
+          "unsafe": 0.604,
+          "undecided": 0.3955
+        },
+        "judge_only": {
+          "safe": 0.0,
+          "unsafe": 1.0,
+          "undecided": 0.0
+        }
+      },
+      "good": {
+        "ppi": {
+          "safe": 0.9855,
+          "unsafe": 0.0,
+          "undecided": 0.0145
+        },
+        "judge_only": {
+          "safe": 0.0,
+          "unsafe": 0.9695,
+          "undecided": 0.0305
+        }
+      }
+    },
+    "loss_blind": {
+      "bad": {
+        "ppi": {
+          "safe": 0.001,
+          "unsafe": 0.5875,
+          "undecided": 0.4115
+        },
+        "judge_only": {
+          "safe": 0.943,
+          "unsafe": 0.0,
+          "undecided": 0.057
+        }
+      },
+      "good": {
+        "ppi": {
+          "safe": 0.991,
+          "unsafe": 0.0,
+          "undecided": 0.009
+        },
+        "judge_only": {
+          "safe": 1.0,
+          "unsafe": 0.0,
+          "undecided": 0.0
+        }
+      }
+    },
+    "drifted": {
+      "bad": {
+        "ppi": {
+          "safe": 0.177,
+          "unsafe": 0.0005,
+          "undecided": 0.8225
+        },
+        "judge_only": {
+          "safe": 0.9385,
+          "unsafe": 0.0,
+          "undecided": 0.0615
+        }
+      },
+      "good": {
+        "ppi": {
+          "safe": 1.0,
+          "unsafe": 0.0,
+          "undecided": 0.0
+        },
+        "judge_only": {
+          "safe": 1.0,
+          "unsafe": 0.0,
+          "undecided": 0.0
+        }
+      }
+    },
+    "false_safe": {
+      "good": {
+        "ppi": 0.0,
+        "judge_only": 0.0
+      },
+      "mediocre": {
+        "ppi": 0.0005,
+        "judge_only": 0.0
+      },
+      "loss_blind": {
+        "ppi": 0.001,
+        "judge_only": 0.943
+      },
+      "drifted": {
+        "ppi": 0.177,
+        "judge_only": 0.9385
+      }
+    }
+  },
+  "cost": {
+    "target": 0.1,
+    "cheap_share": 0.37,
+    "judge": "mock/cheap",
+    "undecided_rate": {
+      "sample_rate": 0.05,
+      "requests": 1000,
+      "shadow_pairs": 22,
+      "routed_list_nano_usd": 172753000,
+      "evidence_list_nano_usd": 7237800,
+      "share": 0.0419
+    },
+    "decided_rate": {
+      "sample_rate": 0.01,
+      "requests": 1000,
+      "shadow_pairs": 5,
+      "routed_list_nano_usd": 172753000,
+      "evidence_list_nano_usd": 1644900,
+      "share": 0.0095
+    },
+    "met": true
+  },
+  "canary": {
+    "runs": 200,
+    "floor": 0.9,
+    "look_every": 250,
+    "max_looks": 4,
+    "n_human": 100,
+    "bad": {
+      "w": 0.84,
+      "rolled_back": 0.66,
+      "promote_recommended": 0.0,
+      "undecided": 0.34,
+      "median_pairs_to_decision": 250.0
+    },
+    "good": {
+      "w": 0.97,
+      "rolled_back": 0.0,
+      "promote_recommended": 0.99,
+      "undecided": 0.01,
+      "median_pairs_to_decision": 250.0
+    }
+  },
+  "gate": {
+    "coverage_wald_worst": 0.9333,
+    "coverage_bootstrap_worst": 0.88,
+    "detection_fixed_median": 249.5,
+    "detection_e1_median": 315.0,
+    "false_safe_ppi_loss_blind": 0.0,
+    "false_safe_judge_only_loss_blind": 0.935,
+    "false_safe_ppi_drifted": 0.17,
+    "m8_share": 0.019,
+    "canary_bad_rolled_back": 0.6,
+    "canary_good_rolled_back": 0.0
+  }
+}

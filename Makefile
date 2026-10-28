@@ -29,7 +29,8 @@ help:
 	@echo   eval-judge   validate the judge calibration against the simulator
 	@echo   train-router re-train the router (sklearn) and rewrite its artifact
 	@echo   eval-router  re-run the router eval and rewrite evals/router/sim/metrics.json
-	@echo   eval-evidence reproduce   (later phases)
+	@echo   eval-evidence re-run the evidence experiments (M5, M6, M8, canary) and rewrite metrics.json
+	@echo   reproduce    (later phase)
 
 install:
 	uv sync --locked
@@ -51,7 +52,7 @@ test:
 # PRD NFR: >= 80% line coverage on the packages that carry the guarantees. Reads the data
 # file `make test` just wrote.
 cov-gate:
-	uv run coverage report --include=relay/pipeline/*,relay/reliability/*,relay/evidence/*,relay/routing/* --fail-under=80
+	uv run coverage report --include=relay/pipeline/*,relay/reliability/*,relay/evidence/*,relay/routing/*,relay/policy/* --fail-under=80
 
 # The last -m wins over the one in pyproject's addopts, so this selects only integration tests.
 test-integration:
@@ -94,6 +95,7 @@ eval:
 	uv run python -m evals.cache.evaluate --check
 	uv run python -m evals.router.evaluate --check
 	uv run python -m evals.router.evaluate --world real --check
+	uv run python -m evals.evidence.evaluate --check
 
 eval-cache:
 	uv run python -m evals.cache.evaluate
@@ -102,8 +104,6 @@ eval-cache:
 eval-judge:
 	uv run python -m relay.evidence.validate --out evals/judge/sim_validation.json
 
-# Stubs fail loudly: a reproduce script that "passes" without doing anything would be worse
-# than one that is missing. Each is replaced in the phase listed in docs/plans/README.md.
 # The router (PRD FR-7). train-router fits it with scikit-learn and writes the artifact;
 # eval-router measures the *committed* artifact on the frozen data (no model, no network).
 # Rebuild the dataset only to change it: `python -m evals.router.build` (needs the embedding model).
@@ -113,6 +113,13 @@ train-router:
 eval-router:
 	uv run python -m evals.router.evaluate
 
-eval-evidence reproduce:
+# The evidence engine's validation experiments (PRD §10.9): coverage, detection delay, judge
+# sensitivity, evidence cost and canary decisions, all simulated with fixed seeds.
+eval-evidence:
+	uv run python -m evals.evidence.evaluate
+
+# Stubs fail loudly: a reproduce script that "passes" without doing anything would be worse
+# than one that is missing. Replaced in the phase listed in docs/plans/README.md.
+reproduce:
 	@echo make $@: not implemented yet - see docs/plans/README.md for the phase that adds it
 	@exit 1
