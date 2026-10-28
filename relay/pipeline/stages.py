@@ -92,6 +92,8 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
         degraded=ctx.degraded,
         policy_version=ctx.policy_version,
         cache_status=ctx.cache.status if ctx.cache else None,
+        router_reason=ctx.router_reason,
+        router_score=ctx.router_score,
         attempts=tuple(
             AttemptRow(
                 request_id=ctx.request_id,
@@ -134,6 +136,12 @@ class RouteStage:
             # tenants can reach.
             return Reject(model_not_found(ctx.request.model))
         ctx.decision = decision
+        # The policy that decided is the policy of record: the request's version was set before
+        # routing (to the static policy), so without this a router's version would never reach
+        # the log row or a cache entry.
+        ctx.policy_version = decision.policy_version
+        ctx.router_reason = decision.reason
+        ctx.router_score = decision.score
         return Continue()
 
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:

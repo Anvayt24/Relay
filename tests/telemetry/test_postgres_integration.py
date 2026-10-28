@@ -186,3 +186,57 @@ async def test_attempts_are_written_with_their_request(
         (0, 1, "primary", None, "breaker_open"),
         (1, 0, "backup", None, None),
     ]
+
+
+async def test_router_decision_columns_round_trip(
+    schema_dsn: tuple[asyncpg.Connection, str],
+) -> None:
+    conn, schema = schema_dsn
+    await migrate(conn)
+    dsn = Settings().database_url
+    assert dsn
+    sink = PostgresSink(f"{dsn}?options=-csearch_path%3D{schema}%2Cpublic")
+    await sink.start()
+    try:
+        await sink.write(
+            [
+                LogRow(
+                    request_id=rid,
+                    ts=datetime.now(UTC),
+                    tenant="t",
+                    route="default",
+                    priority="interactive",
+                    cohort=None,
+                    stream=False,
+                    provider="mock",
+                    model="mock/cheap",
+                    tier="cheap",
+                    status="success",
+                    error_class=None,
+                    tokens_in=1,
+                    tokens_out=1,
+                    latency_ms=3,
+                    ttft_ms=None,
+                    policy_version=version,
+                    router_reason=reason,
+                    router_score=score,
+                )
+                for rid, version, reason, score in (
+                    ("r1", "router-sim-v1", "router", 0.91),
+                    ("r2", "static-v0", "alias", None),
+                    ("r3", "router-unavailable", "router_fallback:no_artifact", None),
+                )
+            ]
+        )
+    finally:
+        await sink.close()
+    rows = await conn.fetch(
+        "SELECT request_id, policy_version, router_reason, router_score FROM requests ORDER BY id"
+    )
+    assert [(r[0], r[1], r[2]) for r in rows] == [
+        ("r1", "router-sim-v1", "router"),
+        ("r2", "static-v0", "alias"),
+        ("r3", "router-unavailable", "router_fallback:no_artifact"),
+    ]
+    assert rows[0]["router_score"] == pytest.approx(0.91, abs=1e-6)
+    assert rows[1]["router_score"] is None

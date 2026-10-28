@@ -92,7 +92,13 @@ class FastEmbedder:
     async def start(self) -> None:
         """Load the model (downloads it on first use). Raises if it can't be loaded."""
         loop = asyncio.get_running_loop()
-        self._model = await loop.run_in_executor(self._pool, self._load)
+        model = await loop.run_in_executor(self._pool, self._load)
+        # Warm up before declaring ready. The first ONNX inference is much slower than the rest
+        # (graph optimization, buffer allocation): measured, it exceeded the router's 0.25 s
+        # embedding timeout, so the first request after startup fell back to the strong model.
+        # `ready` flips only after this, so nothing ever waits on a cold model.
+        await loop.run_in_executor(self._pool, lambda: list(model.embed(["warm up"])))
+        self._model = model
 
     def start_in_background(self) -> asyncio.Task[None]:
         """Load the model without delaying startup. Relay must come up fast (health checks

@@ -78,6 +78,9 @@ class LogRow:
     degraded: bool = False
     policy_version: str | None = None
     cache_status: str | None = None  # Phase 10 (migration 0007): hit | miss | bypass
+    # Phase 11 (migration 0008): why this model, and the trained router's score when it decided.
+    router_reason: str | None = None
+    router_score: float | None = None
     # Not a column: written to the `attempts` table, one row each, in the same transaction.
     attempts: tuple["AttemptRow", ...] = ()
 

@@ -52,6 +52,27 @@ class RouteCache(BaseModel):
     lexical_guard: bool = True
 
 
+class RouterSpec(BaseModel):
+    """A trained router for this route's ``relay/auto`` (PRD FR-7; ADR 0017)."""
+
+    model_config = STRICT
+
+    # The artifact file, relative to this config file. A missing or invalid file is NOT a
+    # startup failure: every relay/auto request then routes to strong (PRD degradation matrix).
+    artifact: str
+    # Send a request to the cheap model when the router's estimated P(win-or-tie) is at least
+    # this. MEASURED on a validation split (evals/router, ADR 0018), never guessed: a higher
+    # value is safer and sends less traffic to the cheap model.
+    threshold: float = Field(ge=0, le=1)
+    alias: str = "relay/auto"  # the model name the router decides for
+    # How long to wait for the prompt embedding before giving up and routing to strong. A warm
+    # embedding takes 20-40 ms; 0.5 s leaves room for a cold CPU (on a laptop running Docker, the
+    # first requests after minutes of idle took several times longer) while still bounding what
+    # a slow embedder can cost a request. A timeout is safe (strong, never an error) and visible:
+    # relay_router_fallback_total{cause="embed_timeout"}.
+    embed_timeout_s: float = Field(default=0.5, gt=0)
+
+
 class RouteSpec(BaseModel):
     model_config = STRICT
 
@@ -62,6 +83,7 @@ class RouteSpec(BaseModel):
     # How many fallback models one request may *attempt* (skipped ones don't count).
     max_fallback_hops: int = Field(default=2, ge=0)
     cache: RouteCache = Field(default_factory=RouteCache)
+    router: RouterSpec | None = None
 
     @property
     def strong_model(self) -> str | None:
@@ -138,6 +160,14 @@ class RelayConfig(BaseModel):
                             f"route {route_name!r}: fallback graph names unknown model {model!r}"
                         )
             _check_acyclic(route_name, route.fallback_graph)
+            if route.router is not None:
+                # The router only ever chooses between these two, so both must exist (the
+                # alias check below already makes every tenant on the route able to call them).
+                for needed in ("relay/cheap", "relay/strong", route.router.alias):
+                    if needed not in route.aliases:
+                        raise ValueError(
+                            f"route {route_name!r}: a router needs alias {needed!r} on the route"
+                        )
 
         for tid, tenant in self.tenants.items():
             if tenant.route not in self.routes:

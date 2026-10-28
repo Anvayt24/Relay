@@ -95,6 +95,11 @@ class RequestContext:
     cache: CacheResult | None = None
     # The prompt embedding, computed once for the cache and reused by the router (Phase 11).
     embedding: list[float] | None = None
+    # Phase 11. Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
+    # and, when the trained router decided, its score. Logged for every request: a later phase
+    # samples the score band that would move under a lower threshold (PRD §10.2 item 5).
+    router_reason: str | None = None
+    router_score: float | None = None
     # What the model said, collected as it is produced, so the cache can store it when the
     # request ends: the JSON reply, or the chunks a stream forwarded.
     reply_parts: list[str] = field(default_factory=list)

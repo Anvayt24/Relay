@@ -25,6 +25,7 @@ Run it with ``uvicorn relay.api.app:create_app --factory``.
 import logging
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -45,8 +46,8 @@ from relay.cache.embed import Embedder, FastEmbedder, HashEmbedder
 from relay.cache.exact import ExactStore, MemoryExactStore, RedisExactStore
 from relay.cache.semantic import MemorySemanticStore, PgVectorStore, SemanticStore
 from relay.cache.stage import CacheStage
-from relay.config.loader import load_config
-from relay.config.models import available_models
+from relay.config.loader import DEFAULT_CONFIG, load_config
+from relay.config.models import ModelSpec, available_models
 from relay.config.schema import RelayConfig
 from relay.config.tenants import Tenant
 from relay.pipeline.runner import Pipeline
@@ -58,6 +59,10 @@ from relay.reliability.breaker import BreakerRegistry
 from relay.reliability.dispatch import ReliableDispatcher
 from relay.reliability.edges import SeededEdgeStates
 from relay.reliability.retry_budget import RetryBudget
+from relay.routing.artifact import ArtifactError, RouterArtifact
+from relay.routing.artifact import load as load_artifact
+from relay.routing.base import Router
+from relay.routing.router import TrainedRouter
 from relay.routing.static import StaticRouter
 from relay.settings import Settings
 from relay.simulator.engine import Simulator
@@ -79,6 +84,7 @@ def create_app(
     exact_cache: ExactStore | None = None,
     semantic_cache: SemanticStore | None = None,
     embedder: Embedder | None = None,
+    router: Router | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     # Invalid YAML (dangling alias, cyclic fallback graph, ...) raises here: Relay won't start.
@@ -126,10 +132,12 @@ def create_app(
     # Built once per app, not per request. Constructors validate the config (dangling
     # aliases, models without an adapter), so a bad config fails at startup.
     # Cache backends come from settings unless a caller (a test) hands them in.
-    default_exact, default_semantic, default_embedder = _cache_backends(settings, config)
+    default_exact, default_semantic = _cache_backends(settings, config)
     exact_cache = exact_cache or default_exact
     semantic_cache = semantic_cache or default_semantic
-    embedder = embedder or default_embedder
+    # One embedder, shared by the semantic cache and the router (the router reuses the
+    # cache's embedding when it has one). Built when either needs it.
+    embedder = embedder or _embedder(settings, config)
     cache_stage = CacheStage(config, exact=exact_cache, semantic=semantic_cache, embedder=embedder)
     rel = config.reliability
     dispatcher = ReliableDispatcher(
@@ -152,7 +160,10 @@ def create_app(
             LogStage(writer),  # first in, so its finalize is last out and sees the outcome
             AdmissionStage(store, queue, replica_count=settings.replica_count),
             cache_stage,  # a hit short-circuits: no routing, reservation or provider call
-            RouteStage(StaticRouter(config, models), config),
+            RouteStage(
+                router or _router(settings, config, models, embedder),
+                config,
+            ),
             # After routing (the price needs the model), and sized for every model the
             # dispatcher might fall back to.
             ReservationStage(
@@ -223,32 +234,75 @@ def create_app(
 
 def _cache_backends(
     settings: Settings, config: RelayConfig
-) -> tuple[ExactStore, SemanticStore | None, Embedder | None]:
+) -> tuple[ExactStore, SemanticStore | None]:
     """The cache's storage, chosen from what is configured (PRD §8 degradation matrix: every
     layer is optional and fails open).
 
     - exact: Redis when configured, else in-process;
-    - semantic + embedder: only if some tenant turned semantic caching on and the embedder
-      isn't "off". Postgres/pgvector when a database is configured, else in-process.
+    - semantic: only if some tenant turned semantic caching on and the embedder isn't "off".
+      Postgres/pgvector when a database is configured, else in-process.
     """
     exact: ExactStore = (
         RedisExactStore(settings.redis_url) if settings.redis_url else MemoryExactStore()
     )
     wants_semantic = any(t.cache.enabled and t.cache.semantic for t in config.tenants.values())
     if not wants_semantic or settings.embedder == "off":
-        return exact, None, None
-    embedder: Embedder = (
-        HashEmbedder()
-        if settings.embedder == "hash"
-        else FastEmbedder(onnx_threads=settings.embedder_onnx_threads)
-    )
+        return exact, None
     semantic: SemanticStore
     if settings.database_url:
         semantic = PgVectorStore(settings.database_url)
     else:
         logger.warning("RELAY_DATABASE_URL not set: the semantic cache is in-process only")
         semantic = MemorySemanticStore()
-    return exact, semantic, embedder
+    return exact, semantic
+
+
+def _embedder(settings: Settings, config: RelayConfig) -> Embedder | None:
+    """The prompt embedder, if anything needs one: a tenant with the semantic cache, or a route
+    with a trained router. None when nothing does (no model is loaded for nothing), or when
+    RELAY_EMBEDDER=off (then the semantic layer is skipped and the router routes to strong)."""
+    needed = any(t.cache.enabled and t.cache.semantic for t in config.tenants.values()) or any(
+        r.router is not None for r in config.routes.values()
+    )
+    if not needed or settings.embedder == "off":
+        return None
+    if settings.embedder == "hash":
+        return HashEmbedder()
+    return FastEmbedder(onnx_threads=settings.embedder_onnx_threads)
+
+
+def _config_dir(settings: Settings) -> Path:
+    # Router artifact paths are relative to the config file that names them.
+    return Path(settings.config_path).parent if settings.config_path else DEFAULT_CONFIG.parent
+
+
+def _router(
+    settings: Settings,
+    config: RelayConfig,
+    models: Mapping[str, ModelSpec],
+    embedder: Embedder | None,
+) -> Router:
+    """The static router, or the trained one when any route configures a ``router:``.
+
+    A missing or invalid artifact is logged loudly and recorded as None: that route's
+    relay/auto then routes to strong (PRD: "router artifact missing/corrupt -> strong") and the
+    gateway still starts."""
+    routed = {name: r.router for name, r in config.routes.items() if r.router is not None}
+    if not routed:
+        return StaticRouter(config, models)
+    artifacts: dict[str, RouterArtifact | None] = {}
+    for name, spec in routed.items():
+        path = _config_dir(settings) / spec.artifact
+        try:
+            loaded = load_artifact(path)
+            artifacts[name] = loaded
+            logger.info("route %r: router %s from %s", name, loaded.version, path)
+        except ArtifactError as e:
+            artifacts[name] = None
+            logger.error(
+                "route %r: router artifact unusable (%s); relay/auto will route to strong", name, e
+            )
+    return TrainedRouter(config, models, artifacts=artifacts, embedder=embedder)
 
 
 async def _drain(app: FastAPI, timeout_s: float) -> None:
