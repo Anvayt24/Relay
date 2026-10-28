@@ -1,8 +1,10 @@
 """Real-world sanity check of the online evidence path (PRD §10.9 item 4). NON-REPRODUCIBLE.
 
-    python -m evals.evidence.real_check --cheap <gemini id> --strong <gemini id> --n 30
+    python -m evals.evidence.real_check --provider groq --cheap openai/gpt-oss-20b
+        --strong openai/gpt-oss-120b --n 30
 
-What it exercises, end to end, with a real provider (Gemini) and nothing simulated:
+What it exercises, end to end, with a real provider (Groq or Gemini, ``--provider``) and
+nothing simulated:
 
     gateway (relay/cheap answers) → shadow stage (the strong model answers the same request)
     → bulk judge (the strong model) → eval_pairs → evidence worker → route card
@@ -18,7 +20,8 @@ Whatever was gathered is always written, even when the run stops early.
 
 What it is **not**: a quality measurement. The judge is the same family as both candidates
 and has no human labels, so the card is ``uncalibrated`` by design and its estimate is
-judge-only. Prompts are public (Dolly, CC BY-SA 3.0): the Gemini free tier may use prompts.
+judge-only. Prompts are public (Dolly, CC BY-SA 3.0): free tiers (Gemini's especially) may
+use prompts.
 
 Outputs (in ``--out``): ``pairs.jsonl`` (the judged pairs, with text), ``cards.json`` and
 ``real_check.md``.
@@ -82,22 +85,23 @@ class Counting:
 
 def config_for(args: argparse.Namespace) -> RelayConfig:
     base = load_config()
-    gemini = base.providers["gemini"]
+    name = args.provider
+    provider = base.providers[name]
     return RelayConfig.model_validate(
         {
             "price_table_version": base.price_table_version,
-            "providers": {"gemini": gemini.model_dump()},
+            "providers": {name: provider.model_dump()},
             "models": {
-                "gemini/cheap": {
-                    "provider": "gemini",
+                f"{name}/cheap": {
+                    "provider": name,
                     "provider_model": args.cheap,
                     "tier": "cheap",
                     "price_in": 0,
                     "price_out": 0,
                     "billing": "free",
                 },
-                "gemini/strong": {
-                    "provider": "gemini",
+                f"{name}/strong": {
+                    "provider": name,
                     "provider_model": args.strong,
                     "tier": "strong",
                     "price_in": 0,
@@ -107,9 +111,9 @@ def config_for(args: argparse.Namespace) -> RelayConfig:
             },
             "routes": {
                 "check": {
-                    "aliases": {"relay/cheap": "gemini/cheap", "relay/strong": "gemini/strong"},
+                    "aliases": {"relay/cheap": f"{name}/cheap", "relay/strong": f"{name}/strong"},
                     "evidence": {
-                        "judge": "gemini/strong",
+                        "judge": f"{name}/strong",
                         "judge_max_tokens": args.judge_max_tokens,
                         "sample_rate": 1.0,
                         "sample_rate_decided": 1.0,
@@ -125,7 +129,7 @@ def config_for(args: argparse.Namespace) -> RelayConfig:
                     "limits": {"rpm": 1000, "tpm": 10**7, "concurrency": 4},
                     "budget_usd_daily": 1,
                     "budget_mode": "soft",
-                    "allowed_providers": ["gemini"],
+                    "allowed_providers": [name],
                     "evidence_sampling": "on",
                     "logging": "full",
                 }
@@ -140,13 +144,17 @@ async def run(args: argparse.Namespace, prompts: list[str], out: Path) -> int:
         _env_file=None, env="dev", auth_disabled=True, auth_disabled_tenant="check"
     )
     real = build_adapters(ProviderKeys(), settings, config.providers)
-    if "gemini" not in real:
-        print("GEMINI_API_KEY is not set")
+    if args.provider not in real:
+        print(f"no API key for {args.provider} (see its api_key_env in relay.yaml)")
         return 2
-    counted = Counting(real["gemini"], args.max_calls)
+    counted = Counting(real[args.provider], args.max_calls)
     store, sink = MemoryEvidenceStore(), MemorySink()
     app = create_app(
-        settings, providers={"gemini": counted}, config=config, log_sink=sink, evidence_store=store
+        settings,
+        providers={args.provider: counted},
+        config=config,
+        log_sink=sink,
+        evidence_store=store,
     )
     failed = in_a_row = sent = 0
     stopped = ""
@@ -184,10 +192,11 @@ async def run(args: argparse.Namespace, prompts: list[str], out: Path) -> int:
     report = [
         "# Evidence engine: real sanity check (NON-REPRODUCIBLE)",
         "",
-        "`python -m evals.evidence.real_check` on the real Gemini API. It shows the online path "
-        "works end to end (gateway -> shadow -> judge -> pairs -> worker -> card); it is **not** a "
-        "quality measurement: the judge is the same family as both models and has no human "
-        "labels, so the card is `uncalibrated` by design and its estimate is judge-only.",
+        f"`python -m evals.evidence.real_check` on the real {args.provider} API. It shows the "
+        "online path works end to end (gateway -> shadow -> judge -> pairs -> worker -> card); "
+        "it is **not** a quality measurement: the judge is the same family as both models and "
+        "has no human labels, so the card is `uncalibrated` by design and its estimate is "
+        "judge-only.",
         "",
         f"- models: cheap `{args.cheap}`, strong (and judge) `{args.strong}`",
         f"- requests: {sent} of {len(prompts)} public Dolly prompts sent; failed: {failed}"
@@ -215,8 +224,9 @@ def _write(path: Path, text: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m evals.evidence.real_check", description=__doc__)
-    p.add_argument("--cheap", required=True, help="Gemini model id for relay/cheap")
-    p.add_argument("--strong", required=True, help="Gemini model id for relay/strong and judge")
+    p.add_argument("--provider", default="groq", choices=["groq", "gemini"])
+    p.add_argument("--cheap", required=True, help="upstream model id for relay/cheap")
+    p.add_argument("--strong", required=True, help="upstream model id for relay/strong and judge")
     p.add_argument("--n", type=int, default=30)
     p.add_argument("--max-calls", type=int, default=100)
     p.add_argument("--max-tokens", type=int, default=1000)
