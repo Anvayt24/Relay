@@ -16,6 +16,7 @@ refuses to start (FR-3).
 """
 
 import logging
+from decimal import Decimal
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
@@ -73,6 +74,44 @@ class RouterSpec(BaseModel):
     embed_timeout_s: float = Field(default=0.5, gt=0)
 
 
+class EvidenceSpec(BaseModel):
+    """The evidence engine for this route (PRD FR-10, §10; ADRs 0019-0022). Absent = no shadow
+    sampling and no cards for the route."""
+
+    model_config = STRICT
+
+    # The bulk judge, a Relay model name. It must be a provider every sampled tenant allows.
+    judge: str
+    # The judge's output cap. 16 fits a one-word verdict from a plain model; a reasoning model
+    # (gpt-oss, Gemini flash) spends tokens thinking first and needs a few hundred, or it runs
+    # out before the verdict and abstains (Phase 9/11).
+    judge_max_tokens: int = Field(default=16, gt=0)
+    # A comparison is "safe" when the lower bound of w is >= floor (§10.1).
+    floor: float = Field(default=0.90, gt=0, lt=1)
+    # Share of eligible requests that get a shadow call: while the comparison's card is
+    # undecided or missing, and once it is decided (cheaper to keep watching than to decide).
+    sample_rate: float = Field(default=0.05, ge=0, le=1)
+    sample_rate_decided: float = Field(default=0.01, ge=0, le=1)
+    # Cheap answers served by a canary bundle are sampled at this rate: a canary needs a
+    # decision quickly, so it gets more evidence (FR-11, §10.7).
+    canary_sample_rate: float = Field(default=0.25, ge=0, le=1)
+    # List-price cap on shadow + judge calls per UTC day (§10.2 item 3).
+    shadow_budget_usd_per_day: Decimal = Field(default=Decimal("1"), ge=0)
+    # Pre-registered looks (ADR 0019): decide only every `look_every` judged pairs, at most
+    # `max_looks` times, each at alpha / max_looks.
+    look_every: int = Field(default=500, gt=0)
+    max_looks: int = Field(default=4, gt=0)
+    alpha: float = Field(default=0.05, gt=0, lt=1)
+    min_cohort_n: int = Field(default=200, gt=0)  # smaller cohorts merge into "other"
+    rectifier_max_age_days: int = Field(default=30, gt=0)  # older human labels: card is stale
+    interval: Literal["wald", "bootstrap"] = "wald"
+    # Shadow the cheap model on strong-routed requests with router score in [band_lo,
+    # threshold): the only evidence that can support lowering the threshold (§10.2 item 5).
+    band_lo: float | None = Field(default=None, ge=0, le=1)
+    # Shadow gated fallback targets on healthy-primary traffic (§10.2 item 2).
+    sample_fallbacks: bool = True
+
+
 class RouteSpec(BaseModel):
     model_config = STRICT
 
@@ -84,6 +123,7 @@ class RouteSpec(BaseModel):
     max_fallback_hops: int = Field(default=2, ge=0)
     cache: RouteCache = Field(default_factory=RouteCache)
     router: RouterSpec | None = None
+    evidence: EvidenceSpec | None = None
 
     @property
     def strong_model(self) -> str | None:
@@ -167,6 +207,20 @@ class RelayConfig(BaseModel):
                     if needed not in route.aliases:
                         raise ValueError(
                             f"route {route_name!r}: a router needs alias {needed!r} on the route"
+                        )
+            if route.evidence is not None:
+                ev = route.evidence
+                if ev.judge not in self.models:
+                    raise ValueError(f"route {route_name!r}: unknown judge model {ev.judge!r}")
+                if ev.band_lo is not None:
+                    if route.router is None:
+                        raise ValueError(
+                            f"route {route_name!r}: evidence.band_lo needs a router on the route"
+                        )
+                    if ev.band_lo >= route.router.threshold:
+                        raise ValueError(
+                            f"route {route_name!r}: evidence.band_lo must be below the router "
+                            f"threshold {route.router.threshold}"
                         )
 
         for tid, tenant in self.tenants.items():
