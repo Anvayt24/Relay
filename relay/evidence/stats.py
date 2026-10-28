@@ -248,3 +248,156 @@ def ppi_mean_ci(
         human_only_ci=h_ci,
         ess_gain=gain,
     )
+
+
+# ---------------------------------------------------------------- PPI on counts (Phase 12)
+# With binary labels, a labeled set is fully described by four counts (human x judge) and the
+# judge-only set by two (N, and how many the judge called win-or-tie). Writing PPI++ in counts
+# makes it vectorizable: a bootstrap replicate is one multinomial draw, and the coverage and
+# detection simulations (evals/evidence) run tens of thousands of estimates as array math.
+# `ppi_from_counts` computes exactly what `ppi_mean_ci` computes (a test checks this).
+
+
+def ppi_from_counts(
+    n11: "np.ndarray | int",
+    n10: "np.ndarray | int",
+    n01: "np.ndarray | int",
+    n00: "np.ndarray | int",
+    k_unlabeled: "np.ndarray | int",
+    n_unlabeled: "np.ndarray | int",
+    *,
+    lam: float | None = None,
+) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+    """(theta, se, lambda) of PPI++ from counts. ``nYF`` = labeled items with human label Y and
+    judge label F (1 = win or tie); ``k_unlabeled`` of the ``n_unlabeled`` judge-only items
+    were called win-or-tie. Every argument may be an array (broadcast together).
+
+    ``lam`` fixes the weight instead of tuning it (1.0 = classic PPI): see the M5 experiment
+    for why monitoring a *changing* population wants that."""
+    a11, a10, a01, a00 = (np.asarray(x, dtype=float) for x in (n11, n10, n01, n00))
+    k, big_n = np.asarray(k_unlabeled, dtype=float), np.asarray(n_unlabeled, dtype=float)
+    n = a11 + a10 + a01 + a00
+    y_bar = (a11 + a10) / n
+    f_bar = (a11 + a01) / n
+    var_f = n / (n - 1) * f_bar * (1 - f_bar)
+    cov = n / (n - 1) * (a11 / n - y_bar * f_bar)
+    if lam is None:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            weight = np.where(var_f > 0, np.clip(cov / ((1 + n / big_n) * var_f), 0.0, 1.0), 0.0)
+    else:
+        weight = np.full(np.broadcast(a11, k).shape, float(lam))
+    fu_bar = k / big_n
+    theta = weight * fu_bar + (y_bar - weight * f_bar)
+    # Residual y - weight*f takes four values; add the two pseudo-observations (1 and -weight).
+    sum_r = n * (y_bar - weight * f_bar) + 1 - weight
+    sum_r2 = a11 * (1 - weight) ** 2 + a10 + a01 * weight**2 + 1 + weight**2
+    var_r = (sum_r2 - sum_r**2 / (n + 2)) / (n + 1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        var_u = np.where(big_n > 1, big_n / (big_n - 1) * fu_bar * (1 - fu_bar), 0.0)
+    se = np.sqrt(weight**2 * var_u / big_n + var_r / n)
+    return theta, se, weight
+
+
+def ppi_bootstrap_ci(
+    judge_unlabeled: "np.ndarray",
+    human_labeled: "np.ndarray",
+    judge_labeled: "np.ndarray",
+    *,
+    alpha: float = 0.05,
+    n_boot: int = 2000,
+    seed: int = 0,
+) -> tuple[float, float, "np.ndarray"]:
+    """Percentile bootstrap interval for the PPI++ estimate (two-sided, 1 - alpha), and the
+    replicates. Both samples are resampled independently (they are independent samples), and
+    lambda is re-estimated in every replicate, so its own noise is part of the interval.
+
+    Appendix A's fallback for when the Wald interval under-covers (small n, w near 0.95).
+    Seeded: the same data gives the same interval."""
+    f_u = np.asarray(judge_unlabeled, dtype=bool)
+    y = np.asarray(human_labeled, dtype=bool)
+    f_l = np.asarray(judge_labeled, dtype=bool)
+    n, big_n = len(y), len(f_u)
+    probs = (
+        np.array(
+            [np.sum(y & f_l), np.sum(y & ~f_l), np.sum(~y & f_l), np.sum(~y & ~f_l)], dtype=float
+        )
+        / n
+    )
+    rng = np.random.default_rng(seed)
+    cells = rng.multinomial(n, probs, size=n_boot)
+    k = rng.binomial(big_n, f_u.mean(), size=n_boot)
+    theta, _, _ = ppi_from_counts(cells[:, 0], cells[:, 1], cells[:, 2], cells[:, 3], k, big_n)
+    lo, hi = np.quantile(theta, [alpha / 2, 1 - alpha / 2])
+    return max(0.0, float(lo)), min(1.0, float(hi)), theta
+
+
+# ---------------------------------------------------------------- decisions against a floor
+def p_safe(estimate: float, se: float, floor: float) -> float:
+    """One-sided p-value for H0: w <= floor (rejecting it supports "safe")."""
+    if se <= 0:
+        return 0.0 if estimate > floor else 1.0
+    return float(norm.sf((estimate - floor) / se))
+
+
+def p_unsafe(estimate: float, se: float, floor: float) -> float:
+    """One-sided p-value for H0: w >= floor (rejecting it supports "unsafe")."""
+    if se <= 0:
+        return 0.0 if estimate < floor else 1.0
+    return float(norm.cdf((estimate - floor) / se))
+
+
+def bonferroni_alpha(alpha: float, looks: int) -> float:
+    """The alpha for each of ``looks`` pre-registered looks (ADR 0019): the chance that *any*
+    look errs is at most ``alpha``, whatever the correlation between looks."""
+    if looks < 1:
+        raise ValueError("need at least one look")
+    return alpha / looks
+
+
+def holm(pvalues: Sequence[float], alpha: float) -> list[bool]:
+    """Holm's step-down procedure: which hypotheses to reject with family-wise error <= alpha.
+
+    Sort ascending; reject the i-th smallest (1-based) while p <= alpha / (m - i + 1); stop at
+    the first that fails. Uniformly more powerful than Bonferroni, same guarantee. Used for
+    promotions, where one false "safe" ships degraded quality (ADR 0020)."""
+    m = len(pvalues)
+    order = sorted(range(m), key=lambda i: pvalues[i])
+    reject = [False] * m
+    for rank, i in enumerate(order):
+        if pvalues[i] > alpha / (m - rank):
+            break
+        reject[i] = True
+    return reject
+
+
+def benjamini_hochberg(pvalues: Sequence[float], q: float) -> list[bool]:
+    """Benjamini-Hochberg: which hypotheses to reject with false-discovery rate <= q.
+
+    Find the largest k with p_(k) <= k*q/m and reject the k smallest. Used for regression
+    alerts, where a false alarm costs an investigation, not a bad promotion (ADR 0020)."""
+    m = len(pvalues)
+    order = sorted(range(m), key=lambda i: pvalues[i])
+    cutoff = 0
+    for rank, i in enumerate(order, start=1):
+        if pvalues[i] <= rank * q / m:
+            cutoff = rank
+    reject = [False] * m
+    for i in order[:cutoff]:
+        reject[i] = True
+    return reject
+
+
+def samples_needed(estimate: float, se: float, n: int, floor: float, alpha: float) -> int | None:
+    """Roughly how many more judged samples until a one-sided test at ``alpha`` can decide,
+    if the estimate stays where it is ("undecided: needs N more", §10.1).
+
+    The standard error shrinks like 1/sqrt(n), so reaching a standard error of
+    |estimate - floor| / z needs n * (se / se_target)^2 samples in total. None when the
+    estimate sits exactly on the floor (no amount of data decides that)."""
+    gap = abs(estimate - floor)
+    if gap == 0 or n <= 0:
+        return None
+    se_target = gap / float(norm.ppf(1 - alpha))
+    if se <= se_target:
+        return 0
+    return math.ceil(n * (se / se_target) ** 2 - n)
