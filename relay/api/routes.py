@@ -19,6 +19,7 @@ from relay.config.schema import RelayConfig
 from relay.config.tenants import Priority, Tenant
 from relay.pipeline.context import RequestContext
 from relay.pipeline.runner import Pipeline, StreamResult
+from relay.policy.runtime import PolicyRuntime
 from relay.routing.static import STATIC_POLICY_VERSION
 from relay.schemas.chat import ChatRequest, ChatResponse
 from relay.settings import Settings
@@ -73,11 +74,20 @@ async def chat_completions(
     x_relay_priority: Annotated[Priority | None, Header()] = None,
     x_relay_cohort: Annotated[str | None, Header()] = None,
     x_relay_cache: Annotated[str | None, Header()] = None,
+    # Canary stickiness (FR-11): requests with the same session key land in the same arm.
+    x_relay_session: Annotated[str | None, Header()] = None,
 ) -> ChatResponse | Response:
     if body.ignored_fields:
         IGNORED_FIELDS.inc(len(body.ignored_fields))
 
     priority = x_relay_priority or tenant.default_priority
+    # One policy snapshot per request (ADR 0023): every stage reads route policy from it, so
+    # a swap that lands mid-request can't mix two policies. The canary arm is decided here,
+    # once, from the session key if the client sent one, else the request id.
+    runtime: PolicyRuntime = request.app.state.policy_runtime
+    snapshot = runtime.snapshot()
+    arm = snapshot.arm(x_relay_session or request.state.request_id)
+    applied = snapshot.applied(arm)
     ctx = RequestContext(
         request_id=request.state.request_id,
         tenant=tenant,
@@ -87,11 +97,14 @@ async def chat_completions(
         # Only tags on the tenant's allowlist are kept; anything else becomes "other", so
         # clients can't create unbounded cohorts in the evidence data (FR-1).
         cohort=tenant.cohort(x_relay_cohort),
-        policy_version=STATIC_POLICY_VERSION,
+        policy_version=applied.version or STATIC_POLICY_VERSION,
         # Fixed now, per tenant and priority: every retry and fallback hop must fit inside it.
         deadline=time.monotonic() + tenant.deadlines.total_for(priority),
         stream=body.stream,
         cache_no_store=(x_relay_cache or "").lower() == "no-store",
+        policy=snapshot,
+        applied=applied,
+        canary_arm=arm,
     )
 
     # Any failure up to here, including a stream that broke before its first content chunk,
@@ -112,6 +125,8 @@ async def chat_completions(
     if ctx.degraded:
         # Only ever "true"; absent otherwise (ADR 0010).
         relay_headers["X-Relay-Degraded"] = "true"
+    if applied.version is not None:
+        relay_headers["X-Relay-Policy"] = applied.version  # the bundle that served it
 
     if isinstance(result, StreamResult):
         # From here the response owns the stream *and* the pipeline's finalize.

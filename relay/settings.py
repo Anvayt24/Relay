@@ -87,3 +87,11 @@ class Settings(BaseSettings):
     queue_max_wait_interactive_s: float = 2.0
     queue_max_wait_batch_s: float = 30.0
     queue_max_depth: int = 100
+    # How often each replica re-reads the route cards the evidence worker writes (Phase 12).
+    # A card change (an edge turning unsafe) reaches every replica within this interval.
+    card_poll_s: float = 5.0
+    # How often each replica re-reads the policy pointer (Phase 13): a rollback reaches every
+    # replica within this interval (PRD FR-11's config-propagation interval).
+    policy_poll_s: float = 5.0
+    # Bearer token for /v1/admin/policy. Unset: the admin API answers 404 (off unless asked).
+    admin_token: SecretStr | None = None

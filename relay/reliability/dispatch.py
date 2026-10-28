@@ -128,11 +128,15 @@ class ReliableDispatcher:
     def breakers(self) -> BreakerRegistry:
         return self._breakers
 
+    def _policy(self, ctx: RequestContext) -> RelayConfig:
+        """The request's route policy: its applied bundle (Phase 13), else the YAML config."""
+        return ctx.applied.config if ctx.applied is not None else self._config
+
     def plan(self, ctx: RequestContext) -> list[Candidate]:
         if ctx.decision is None:
             raise RuntimeError("dispatch needs a route decision; RouteStage goes first")
         return plan_candidates(
-            config=self._config,
+            config=self._policy(ctx),
             models=self._models,
             route=ctx.route,
             tenant=ctx.tenant,
@@ -144,7 +148,7 @@ class ReliableDispatcher:
         """The response (or primed stream) of the first candidate that works. Raises
         ``RelayError`` when none does."""
         candidates = self.plan(ctx)
-        max_hops = self._config.routes[ctx.route].max_fallback_hops
+        max_hops = self._policy(ctx).routes[ctx.route].max_fallback_hops
         deadline = Deadline(ctx.deadline)
         run = _Run()
         hops = 0

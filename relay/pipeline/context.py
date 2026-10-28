@@ -14,6 +14,7 @@ Fields arrive in the phase that first needs them; ``cache`` (PRD §9.3) comes in
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from relay.admission.queue import Slot
 from relay.admission.reservation import Reservation
@@ -24,6 +25,10 @@ from relay.reliability.breaker import Permit
 from relay.routing.base import RouteDecision
 from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ErrorClass
+
+if TYPE_CHECKING:
+    # Types only: the policy runtime builds routers, which import this module.
+    from relay.policy.runtime import BuiltPolicy, PolicySnapshot
 
 
 @dataclass
@@ -104,6 +109,17 @@ class RequestContext:
     # request ends: the JSON reply, or the chunks a stream forwarded.
     reply_parts: list[str] = field(default_factory=list)
     finish_reason: str | None = None
+    # Phase 13 (ADR 0023). The policy snapshot taken when the request arrived, and the policy
+    # that serves it: the active one, or the candidate for a request in the canary arm. Every
+    # stage reads route policy from `applied`, so a swap mid-request can't mix two policies.
+    # None outside the HTTP path (tests that run stages directly): the stage's own config.
+    policy: "PolicySnapshot | None" = None
+    applied: "BuiltPolicy | None" = None
+    canary_arm: str | None = None  # control | canary; None when no canary is running
+    # Shadow mode: what the candidate's router would have decided. Logged, never applied.
+    shadow_policy_version: str | None = None
+    shadow_tier: str | None = None
+    shadow_score: float | None = None
 
     @property
     def served(self) -> ProviderAttempt | None:

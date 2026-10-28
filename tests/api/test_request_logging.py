@@ -4,6 +4,7 @@ Streaming outcomes (failed_midstream, cancelled) are covered in test_streaming_a
 can break connections; here the cases go through a normal HTTP client.
 """
 
+import asyncio
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -125,8 +126,16 @@ async def test_requests_succeed_when_postgres_is_unreachable(
         for _ in range(5):
             r = await client.post(CHAT, json=BODY)
             assert r.status_code == 200
+        # /readyz waits for the first policy poll (Phase 13, FR-1). With the database down
+        # that poll fails (a refused connection; about 2 s on Windows) and the replica becomes
+        # ready on the YAML policy: degraded, never stuck.
+        deadline = time.perf_counter() + 5
         ready = (await client.get("/readyz")).json()
+        while ready["status"] == "loading_policy" and time.perf_counter() < deadline:
+            await asyncio.sleep(0.05)
+            ready = (await client.get("/readyz")).json()
         assert ready["status"] == "ready"
+        assert ready["policy"]["active"] == "yaml"
 
     assert startup_s < 0.5  # no connection attempt at startup
     assert time.perf_counter() - started < 5  # shutdown bounded, even with rows stuck

@@ -81,6 +81,11 @@ class LogRow:
     # Phase 11 (migration 0008): why this model, and the trained router's score when it decided.
     router_reason: str | None = None
     router_score: float | None = None
+    # Phase 13 (migration 0010): the canary arm, and the shadow candidate's decision.
+    canary_arm: str | None = None
+    shadow_policy_version: str | None = None
+    shadow_tier: str | None = None
+    shadow_score: float | None = None
     # Not a column: written to the `attempts` table, one row each, in the same transaction.
     attempts: tuple["AttemptRow", ...] = ()
 

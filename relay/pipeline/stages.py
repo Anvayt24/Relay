@@ -5,6 +5,7 @@ Each stage is a small class with its dependencies passed into ``__init__``. Noth
 up globally, so a test builds a stage with exactly the router, providers or writer it wants.
 """
 
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     # The dispatcher imports this package's context and streaming modules; importing it at
     # runtime here would be circular. ProviderStage only needs it as a type.
     from relay.reliability.dispatch import ReliableDispatcher
+
+logger = logging.getLogger(__name__)
 
 
 class LogStage:
@@ -94,6 +97,10 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
         cache_status=ctx.cache.status if ctx.cache else None,
         router_reason=ctx.router_reason,
         router_score=ctx.router_score,
+        canary_arm=ctx.canary_arm,
+        shadow_policy_version=ctx.shadow_policy_version,
+        shadow_tier=ctx.shadow_tier,
+        shadow_score=ctx.shadow_score,
         attempts=tuple(
             AttemptRow(
                 request_id=ctx.request_id,
@@ -126,8 +133,10 @@ class RouteStage:
         self._config = config
 
     async def process(self, ctx: RequestContext) -> StageResult:
+        # The router of the policy serving this request (Phase 13), else this stage's own.
+        router = ctx.applied.router if ctx.applied is not None else self._router
         try:
-            decision = await self._router.decide(ctx.request, ctx)
+            decision = await router.decide(ctx.request, ctx)
         except RelayError as e:
             return Reject(e)
         provider = self._config.models[decision.model].provider
@@ -136,13 +145,32 @@ class RouteStage:
             # tenants can reach.
             return Reject(model_not_found(ctx.request.model))
         ctx.decision = decision
-        # The policy that decided is the policy of record: the request's version was set before
-        # routing (to the static policy), so without this a router's version would never reach
-        # the log row or a cache entry.
-        ctx.policy_version = decision.policy_version
+        # The policy of record. With a policy bundle applied it is the bundle's version, set
+        # when the request arrived (ADR 0023). Without one, the policy that decided: the
+        # request's version was set before routing (to the static policy), so without this a
+        # router's version would never reach the log row or a cache entry.
+        if ctx.applied is None or ctx.applied.version is None:
+            ctx.policy_version = decision.policy_version
         ctx.router_reason = decision.reason
         ctx.router_score = decision.score
+        await self._shadow_decision(ctx)
         return Continue()
+
+    async def _shadow_decision(self, ctx: RequestContext) -> None:
+        """Shadow mode (FR-11): the candidate's router decides too; the decision is logged and
+        never applied. It reuses the request's embedding, so it costs no provider call. A
+        failure here is swallowed: a shadow bundle must never change a response."""
+        shadow = ctx.policy.shadow() if ctx.policy is not None else None
+        if shadow is None:
+            return
+        try:
+            decision = await shadow.router.decide(ctx.request, ctx)
+        except Exception:
+            logger.warning("shadow policy %s could not decide", shadow.version, exc_info=True)
+            return
+        ctx.shadow_policy_version = shadow.version
+        ctx.shadow_tier = decision.tier
+        ctx.shadow_score = decision.score
 
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
         return None

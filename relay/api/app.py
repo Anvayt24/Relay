@@ -36,7 +36,7 @@ from relay.admission.redis_store import RedisStore
 from relay.admission.resilient import ResilientStore
 from relay.admission.stages import AdmissionStage, ReservationStage
 from relay.admission.store import CapacityStore, MemoryStore
-from relay.api import health, routes
+from relay.api import admin, health, routes
 from relay.api.errors import install_error_handlers
 from relay.api.request_id import RequestIdMiddleware
 from relay.api.streaming import OpenStreams
@@ -50,8 +50,15 @@ from relay.config.loader import DEFAULT_CONFIG, load_config
 from relay.config.models import ModelSpec, available_models
 from relay.config.schema import RelayConfig
 from relay.config.tenants import Tenant
+from relay.evidence.board import CardBoard
+from relay.evidence.judge import Judge, LLMJudge
+from relay.evidence.shadow import JudgeFactory, ShadowStage
+from relay.evidence.store import EvidenceStore, MemoryEvidenceStore, PostgresEvidenceStore
 from relay.pipeline.runner import Pipeline
 from relay.pipeline.stages import LogStage, ProviderStage, RouteStage
+from relay.policy.poller import PolicyPoller
+from relay.policy.runtime import PolicyRuntime
+from relay.policy.store import PolicyStore, PostgresPolicyStore
 from relay.providers.base import ProviderAdapter
 from relay.providers.mock import MockProvider
 from relay.providers.registry import ProviderKeys, build_adapters
@@ -85,6 +92,9 @@ def create_app(
     semantic_cache: SemanticStore | None = None,
     embedder: Embedder | None = None,
     router: Router | None = None,
+    evidence_store: EvidenceStore | None = None,
+    judges: JudgeFactory | None = None,
+    policy_store: PolicyStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     # Invalid YAML (dangling alias, cyclic fallback graph, ...) raises here: Relay won't start.
@@ -139,6 +149,31 @@ def create_app(
     # cache's embedding when it has one). Built when either needs it.
     embedder = embedder or _embedder(settings, config)
     cache_stage = CacheStage(config, exact=exact_cache, semantic=semantic_cache, embedder=embedder)
+
+    # The evidence engine (Phase 12), only when some route has an `evidence:` section. Cards
+    # come from the worker through the store; the board makes gated edges follow them, falling
+    # back to the YAML seed state for an edge with no card yet.
+    seeded = SeededEdgeStates(config)
+    evidence_on = any(r.evidence is not None for r in config.routes.values())
+    board: CardBoard | None = None
+    shadow: ShadowStage | None = None
+    if evidence_on:
+        if evidence_store is None:
+            evidence_store = (
+                PostgresEvidenceStore(settings.database_url)
+                if settings.database_url
+                else MemoryEvidenceStore()
+            )
+        board = CardBoard(evidence_store, seeded=seeded, poll_s=settings.card_poll_s)
+        if any(t.evidence_sampling == "on" for t in config.tenants.values()):
+            shadow = ShadowStage(
+                config,
+                models,
+                judges=judges or _judge_factory(providers, models),
+                store=evidence_store,
+                budget=store,
+                board=board,
+            )
     rel = config.reliability
     dispatcher = ReliableDispatcher(
         config,
@@ -152,18 +187,44 @@ def create_app(
             minimum=rel.retry_budget_min,
             window_s=rel.retry_budget_window_s,
         ),
-        edge_states=SeededEdgeStates(config),
+        edge_states=board or seeded,
         first_token_ceiling_s=settings.first_token_timeout_s,
+    )
+    if shadow is not None:
+        shadow.bind(dispatcher.run)
+
+    # Policy bundles (Phase 13). The YAML policy serves until a bundle is activated; with a
+    # database, every replica follows the pointer there (ADRs 0023, 0024).
+    bootstrap_router = router or _router(settings, config, models, embedder)
+
+    def router_factory(cfg: RelayConfig, arts: Mapping[str, object]) -> Router:
+        if not any(r.router is not None for r in cfg.routes.values()):
+            return StaticRouter(cfg, models)
+        return TrainedRouter(
+            cfg,
+            models,
+            artifacts={k: v for k, v in arts.items() if isinstance(v, RouterArtifact)},
+            embedder=embedder,
+        )
+
+    runtime = PolicyRuntime(
+        config, models, bootstrap=bootstrap_router, router_factory=router_factory
+    )
+    if policy_store is None and settings.database_url:
+        policy_store = PostgresPolicyStore(settings.database_url)
+    poller = (
+        PolicyPoller(policy_store, runtime, poll_s=settings.policy_poll_s)
+        if policy_store is not None
+        else None
     )
     pipeline = Pipeline(
         [
             LogStage(writer),  # first in, so its finalize is last out and sees the outcome
+            # Its finalize runs once the response is complete; it may start a shadow call.
+            *([shadow] if shadow is not None else []),
             AdmissionStage(store, queue, replica_count=settings.replica_count),
             cache_stage,  # a hit short-circuits: no routing, reservation or provider call
-            RouteStage(
-                router or _router(settings, config, models, embedder),
-                config,
-            ),
+            RouteStage(bootstrap_router, config),
             # After routing (the price needs the model), and sized for every model the
             # dispatcher might fall back to.
             ReservationStage(
@@ -188,6 +249,14 @@ def create_app(
         embedder_task = (
             embedder.start_in_background() if isinstance(embedder, FastEmbedder) else None
         )
+        if evidence_store is not None:
+            await evidence_store.start()
+        if board is not None:
+            board.start()
+        if policy_store is not None:
+            await policy_store.start()
+        if poller is not None:
+            poller.start()  # its first poll runs now; /readyz waits for it
         writer.start()
         try:
             yield
@@ -195,6 +264,16 @@ def create_app(
             app.state.draining = True
             await _drain(app, settings.shutdown_drain_s)
             await cache_stage.drain()
+            if poller is not None:
+                await poller.stop()
+            if policy_store is not None:
+                await policy_store.close()
+            if shadow is not None:
+                await shadow.drain()
+            if board is not None:
+                await board.stop()
+            if evidence_store is not None:
+                await evidence_store.close()
             if embedder_task is not None:
                 embedder_task.cancel()
             await writer.stop(settings.log_shutdown_timeout_s)
@@ -222,6 +301,12 @@ def create_app(
     app.state.log_writer = writer
     app.state.dispatcher = dispatcher
     app.state.cache_stage = cache_stage
+    app.state.evidence_store = evidence_store
+    app.state.card_board = board
+    app.state.shadow_stage = shadow
+    app.state.policy_runtime = runtime
+    app.state.policy_store = policy_store
+    app.state.policy_poller = poller
     app.state.draining = False
     app.state.open_streams = OpenStreams()  # RelayStreamingResponse keeps this current
 
@@ -229,6 +314,7 @@ def create_app(
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health.router)
     app.include_router(routes.router)
+    app.include_router(admin.router)
     return app
 
 
@@ -269,6 +355,29 @@ def _embedder(settings: Settings, config: RelayConfig) -> Embedder | None:
     if settings.embedder == "hash":
         return HashEmbedder()
     return FastEmbedder(onnx_threads=settings.embedder_onnx_threads)
+
+
+def _judge_factory(
+    providers: Mapping[str, ProviderAdapter], models: Mapping[str, ModelSpec]
+) -> JudgeFactory:
+    """The route's bulk judge (PRD §10.3), built once per model name and reused. None when the
+    judge's provider has no adapter (no key): the shadow stage then skips the comparison."""
+    built: dict[tuple[str, int], Judge] = {}
+
+    def factory(name: str, max_tokens: int) -> Judge | None:
+        spec = models.get(name)
+        if spec is None:
+            return None
+        if (name, max_tokens) not in built:
+            built[name, max_tokens] = LLMJudge(
+                providers[spec.provider],
+                model=spec.provider_model,
+                name=name,
+                max_tokens=max_tokens,
+            )
+        return built[name, max_tokens]
+
+    return factory
 
 
 def _config_dir(settings: Settings) -> Path:

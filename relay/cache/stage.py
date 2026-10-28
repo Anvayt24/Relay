@@ -107,12 +107,14 @@ class CacheStage:
             REQUESTS.labels(layer="none", result="bypass").inc()
             return Continue()
 
-        route = self._config.routes[ctx.route]
+        config = ctx.applied.config if ctx.applied is not None else self._config
+        route = config.routes[ctx.route]
         cap = req.max_tokens or max(
-            (self._config.models[m].default_max_tokens for m in route.aliases.values()),
+            (config.models[m].default_max_tokens for m in route.aliases.values()),
             default=1024,
         )
-        key = exact_key(ctx.tenant.id, req)
+        scope = cache_scope(ctx)
+        key = exact_key(scope, req)
 
         if self._exact is not None:
             try:
@@ -134,7 +136,7 @@ class CacheStage:
         ):
             text = user_text(req)
             assert text is not None  # eligibility guarantees one user message
-            namespace = semantic_namespace(ctx.tenant.id, req)
+            namespace = semantic_namespace(scope, req)
             guard = guard_signature(text)
             try:
                 started = time.perf_counter()
@@ -259,6 +261,20 @@ class CacheStage:
         """Wait for pending writes (shutdown, and tests). Never raises."""
         if self._pending:
             await asyncio.wait(list(self._pending), timeout=timeout_s)
+
+
+def cache_scope(ctx: RequestContext) -> str:
+    """Whose entries a request may see: its tenant's, and for a request to the route's router
+    alias, only those produced under the same policy bundle (ADR 0023). A new bundle can route
+    differently, so an answer chosen under the old one must not be served under it. Requests
+    for an explicit model or another alias don't depend on the router and keep their entries."""
+    applied = ctx.applied
+    if applied is None or applied.version is None:
+        return ctx.tenant.id
+    router = applied.config.routes[ctx.route].router
+    if router is not None and ctx.request.model == router.alias:
+        return f"{ctx.tenant.id}@{applied.version}"
+    return ctx.tenant.id
 
 
 def _replay(completion_id: str, reply: CachedReply) -> PrimedStream:
