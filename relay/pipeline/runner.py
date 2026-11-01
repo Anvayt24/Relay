@@ -34,6 +34,7 @@ from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, Stage
 from relay.pipeline.streaming import PrimedStream
 from relay.schemas.chat import ChatResponse
 from relay.schemas.errors import ErrorClass, RelayError
+from relay.telemetry import tracing
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,14 @@ class Pipeline:
                 # something (a reservation, a slot), so it must still be finalized. Unlike
                 # __aexit__, finalize() must therefore cope with partial state.
                 ran.append(stage)
-                match await stage.process(ctx):
+                # One span per stage (Phase 14), around process() only: finalize runs after
+                # the response and is short. A no-op when tracing is off.
+                with tracing.error_span(f"relay.stage.{stage.name}") as span:
+                    result = await stage.process(ctx)
+                    span.set_attribute("relay.stage.result", type(result).__name__)
+                    if isinstance(result, Reject):
+                        tracing.mark_error(span, result.error.error_class.value)
+                match result:
                     case Continue():
                         continue
                     case ShortCircuit(response=PrimedStream() as stream):

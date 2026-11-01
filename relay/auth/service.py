@@ -16,6 +16,7 @@ from relay.auth.store import KeyStore, KeyStoreUnavailable
 from relay.config.schema import RelayConfig
 from relay.config.tenants import Tenant
 from relay.schemas.errors import ErrorClass, RelayError
+from relay.telemetry import tracing
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,13 @@ class Authenticator:
         self._config = config
 
     async def authenticate(self, authorization: str | None) -> Tenant:
+        # A span with the tenant on success and the error class on failure; never the key.
+        with tracing.error_span("relay.auth") as span:
+            tenant = await self._authenticate(authorization)
+            span.set_attribute("relay.tenant", tenant.id)
+            return tenant
+
+    async def _authenticate(self, authorization: str | None) -> Tenant:
         scheme, _, key = (authorization or "").partition(" ")
         key = key.strip()
         if scheme.lower() != "bearer" or not looks_like_key(key):

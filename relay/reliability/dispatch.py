@@ -47,6 +47,7 @@ from relay.reliability.policy import CONTEXT_FALLBACK, RETRY_ONCE, can_fall_back
 from relay.reliability.retry_budget import RetryBudget
 from relay.schemas.chat import ChatRequest, ChatResponse
 from relay.schemas.errors import ErrorClass, ProviderError, RelayError
+from relay.telemetry import tracing
 
 ATTEMPTS = Counter(
     "relay_provider_attempts_total",
@@ -162,6 +163,7 @@ class ReliableDispatcher:
                 ctx.attempts.append(
                     ProviderAttempt(spec.provider, candidate.model, 0.0, None, hop, 0, reason)
                 )
+                tracing.skipped(candidate.model, spec.provider, hop, reason)
                 run.left_because = reason
                 if run.deadline_hit:
                     break
@@ -290,7 +292,14 @@ class ReliableDispatcher:
         while True:
             started = self._clock()
             try:
-                result = await self._invoke(ctx, adapter, upstream_request, candidate, deadline)
+                with tracing.attempt_span(
+                    provider=spec.provider,
+                    model=candidate.model,
+                    hop=hop,
+                    retry=retry,
+                    left_because=run.left_because,
+                ):
+                    result = await self._invoke(ctx, adapter, upstream_request, candidate, deadline)
             except ProviderError as e:
                 latency = self._clock() - started
                 self._breakers.record(permit, e.error_class)

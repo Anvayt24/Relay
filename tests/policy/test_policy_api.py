@@ -311,13 +311,15 @@ async def test_the_admin_api_needs_the_right_token() -> None:
 
 async def test_the_admin_api_without_a_database_says_so() -> None:
     config = routed_config()
+    emb = StubEmbedder()
     app = create_app(
         relay_settings(admin_token="t"),
         providers={"mock": MockProvider()},
         config=config,
+        embedder=emb,
         router=TrainedRouter(
             config, dict(config.models), artifacts={"default": length_artifact()},
-            embedder=StubEmbedder(),
+            embedder=emb,
         ),
     )  # fmt: skip
     async with serving(app) as c:

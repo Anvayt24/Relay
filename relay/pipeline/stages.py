@@ -15,7 +15,9 @@ from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, StageR
 from relay.routing.base import Router
 from relay.routing.static import model_not_found
 from relay.schemas.errors import ErrorClass, RelayError
+from relay.telemetry import tracing
 from relay.telemetry.log_writer import AttemptRow, LogRow, LogWriter
+from relay.telemetry.metrics import record_request
 
 if TYPE_CHECKING:
     # The dispatcher imports this package's context and streaming modules; importing it at
@@ -44,6 +46,10 @@ class LogStage:
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
         # enqueue() is synchronous and O(1); the database write happens later, elsewhere.
         self._writer.enqueue(row_from_context(ctx, outcome))
+        # Phase 14: the request-level metrics and the trace's outcome attributes, from the
+        # same finished context as the log row (ADR 0025).
+        record_request(ctx, outcome, time.monotonic() - ctx.started_at)
+        tracing.annotate(ctx, outcome)
 
 
 def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:

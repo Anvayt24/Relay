@@ -22,6 +22,13 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     log_level: str = "INFO"
+    # json: one JSON object per line with request_id and trace_id (compose); text: readable.
+    log_format: Literal["json", "text"] = "text"
+    # OpenTelemetry (Phase 14). Unset: tracing is off (OTel's no-op tracer, zero cost).
+    # Example: http://otel-collector:4317 (OTLP gRPC).
+    otel_endpoint: str | None = None
+    # Share of new traces recorded (a caller's traceparent decision is respected).
+    otel_sample_ratio: float = 1.0
     # The adapters' read timeout for a non-streaming call. The tenant's deadline
     # (config `deadlines`, enforced by relay/reliability) usually ends a request sooner.
     request_timeout_s: float = 60.0

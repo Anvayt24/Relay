@@ -74,8 +74,11 @@ from relay.routing.static import StaticRouter
 from relay.settings import Settings
 from relay.simulator.engine import Simulator
 from relay.simulator.scenario import PRESETS
+from relay.telemetry import tracing
 from relay.telemetry.log_writer import LogSink, LogWriter, MemorySink
+from relay.telemetry.logs import configure_logging
 from relay.telemetry.postgres import PostgresSink
+from relay.telemetry.tracing import setup_tracing
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +100,10 @@ def create_app(
     policy_store: PolicyStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
+    # Observability (Phase 14): JSON or text logs with request and trace ids, and tracing
+    # when an OTLP endpoint is configured (otherwise OTel's no-op tracer).
+    configure_logging(settings)
+    tracer_provider = setup_tracing(settings)
     # Invalid YAML (dangling alias, cyclic fallback graph, ...) raises here: Relay won't start.
     config = config or load_config(settings.config_path)
     if providers is None:
@@ -287,6 +294,8 @@ def create_app(
                 await semantic_cache.close()
             for adapter in providers.values():
                 await adapter.aclose()  # release pooled provider connections
+            if tracer_provider is not None:
+                tracing.shutdown()  # flush queued spans, bounded
 
     app = FastAPI(title="Relay", version=__version__, lifespan=lifespan)
     # app.state is how request handlers reach process-wide objects without globals.

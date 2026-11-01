@@ -27,6 +27,8 @@ from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ErrorClass
 
 if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+
     # Types only: the policy runtime builds routers, which import this module.
     from relay.policy.runtime import BuiltPolicy, PolicySnapshot
 
@@ -120,6 +122,9 @@ class RequestContext:
     shadow_policy_version: str | None = None
     shadow_tier: str | None = None
     shadow_score: float | None = None
+    # Phase 14: the request's root span (opened by the request-ID middleware), so the
+    # outcome can be written onto it at the end. None when tracing is off.
+    span: "Span | None" = None
 
     @property
     def served(self) -> ProviderAttempt | None:

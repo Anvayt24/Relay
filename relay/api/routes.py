@@ -105,6 +105,7 @@ async def chat_completions(
         policy=snapshot,
         applied=applied,
         canary_arm=arm,
+        span=getattr(request.state, "span", None),
     )
 
     # Any failure up to here, including a stream that broke before its first content chunk,

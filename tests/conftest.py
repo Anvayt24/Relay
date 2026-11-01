@@ -47,6 +47,9 @@ def test_settings(**overrides: Any) -> Settings:
         "auth_disabled": True,
         "auth_disabled_tenant": "test",
         "key_pepper": TEST_PEPPER,
+        # Never the real embedding model: building it downloads weights from the network.
+        # Tests that need it construct FastEmbedder themselves (tests/cache).
+        "embedder": "hash",
         **overrides,
     }
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
