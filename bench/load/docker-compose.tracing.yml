@@ -1,0 +1,19 @@
+# Tracing overhead (Phase 14): the same load stack, with every request traced (100% sampled)
+# and its spans exported over OTLP to a collector that only counts them. Comparing this run
+# with an untraced one at the same points measures what tracing costs a request.
+#
+#   python -m bench.load --rates 50 --suffix _tracing_off
+#   python -m bench.load --rates 50 --tracing
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.load.yaml:/etc/otelcol/config.yaml:ro
+
+  api:
+    environment:
+      RELAY_OTEL_ENDPOINT: http://otel-collector:4317
+      RELAY_OTEL_SAMPLE_RATIO: "1.0"
+    depends_on:
+      otel-collector: {condition: service_started}
