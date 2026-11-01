@@ -18,6 +18,10 @@ x-relay-image: &relay-image
     RELAY_KEY_PEPPER: local-dev-pepper-change-me
     # Shared admission state: rate limits, budgets, provider pauses (Phase 6).
     RELAY_REDIS_URL: redis://redis:6379/0
+    # Observability (Phase 14): JSON log lines with request_id and trace_id, and spans to
+    # the collector (which forwards them to Tempo). Unset RELAY_OTEL_ENDPOINT turns tracing off.
+    RELAY_LOG_FORMAT: json
+    RELAY_OTEL_ENDPOINT: http://otel-collector:4317
   # Provider keys (GROQ_API_KEY, ...) from the repo's .env, if it exists. Never baked into
   # the image.
   env_file:
@@ -87,6 +91,8 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      - tempo
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
     ports:
@@ -94,6 +100,15 @@ services:
       - "4318:4318"   # OTLP HTTP
     # No healthcheck: the image is distroless (no shell, curl, or wget) so nothing can run a
     # probe inside it. `--wait` treats "running" as ready for services without a healthcheck.
+
+  # Trace store (Phase 14): the collector forwards spans here; Grafana reads them on :3200.
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo's HTTP API (Grafana's datasource)
 
   prometheus:
     image: prom/prometheus:v2.55.0

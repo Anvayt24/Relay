@@ -1,0 +1,10 @@
+# Traces (Phase 14): Explore -> Tempo, search by service "relay" or paste a trace_id from a
+# JSON log line.
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200

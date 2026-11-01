@@ -1,0 +1,12 @@
+# Dashboards as code: every JSON file in this folder is loaded at startup (Phase 14). Edits
+# made in the UI are not saved back; change the JSON instead.
+apiVersion: 1
+
+providers:
+  - name: relay
+    folder: Relay
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards

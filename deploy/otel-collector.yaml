@@ -1,5 +1,7 @@
-# OpenTelemetry Collector: receives traces from Relay over OTLP and, for now, just prints
-# them (debug exporter). Phase 14 adds real instrumentation and a trace backend.
+# OpenTelemetry Collector: receives Relay's spans over OTLP, batches them and forwards them to
+# Tempo (Phase 14). Relay never talks to Tempo directly: swapping the trace backend (Jaeger, a
+# vendor) is a change here, not in the gateway. `debug` keeps a one-line summary per batch in
+# the collector's own log, which helps when a trace seems missing.
 receivers:
   otlp:
     protocols:
@@ -12,6 +14,10 @@ processors:
   batch: {}
 
 exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true   # inside the compose network
   debug:
     verbosity: basic
 
@@ -20,4 +26,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlp/tempo, debug]
