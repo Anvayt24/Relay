@@ -85,3 +85,31 @@ async def test_a_negative_entry_is_not_served_during_an_outage(clock: Clock) -> 
     clock.t = 20
     with pytest.raises(KeyStoreUnavailable):
         await cached.lookup(b"k")
+
+
+async def test_a_full_cache_drops_unknown_keys_before_valid_ones(clock: Clock) -> None:
+    # Found in review: spraying random keys filled the cache with negatives, and the full clear
+    # that followed also dropped the valid keys that carry clients through an outage.
+    inner = MemoryKeyStore({b"good": "t1"})
+    cached = CachedKeyStore(inner, max_entries=10, clock=clock)
+    assert await cached.lookup(b"good") == "t1"
+    for i in range(20):
+        await cached.lookup(f"junk-{i}".encode())
+    inner.down = True  # Postgres goes down
+    clock.t = 400  # past the positive ttl, within stale_if_error
+    assert await cached.lookup(b"good") == "t1"
+
+
+async def test_an_interface_error_is_unavailable_not_a_crash() -> None:
+    import asyncpg
+
+    from relay.auth.store import PostgresKeyStore
+
+    class Pool:
+        async def fetchval(self, *args: object) -> None:
+            raise asyncpg.InterfaceError("pool is closing")
+
+    store = PostgresKeyStore("postgresql://unused")
+    store._pool = Pool()  # type: ignore[assignment]
+    with pytest.raises(KeyStoreUnavailable):  # a 503, as for any outage, not a 500
+        await store.lookup(b"h")

@@ -174,15 +174,45 @@ async def test_pgvector_sweep_deletes_only_expired_entries(pg_store: PgVectorSto
 
 
 @pytest.mark.integration
-async def test_pgvector_finds_its_namespace_behind_many_closer_neighbours(
-    pg_store: PgVectorStore,
-) -> None:
-    # Found in review: HNSW filters its ef_search (40) nearest candidates *after* the search,
-    # so other namespaces' closer vectors could crowd out the only match. Iterative scans fix it.
+async def test_pgvector_connections_scan_the_index_iteratively(pg_store: PgVectorStore) -> None:
+    # Found in review: filtered HNSW lookups could miss a namespace's only match, and ADR 0015
+    # claimed a setting no code made. Every connection of the store must have it. (A test that
+    # makes Postgres pick the HNSW plan on purpose needs thousands of rows and planner flags;
+    # this checks the setting itself.)
+    pool = pg_store._need_pool()
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SHOW hnsw.iterative_scan") == "strict_order"
+
+
+# ---------------------------------------------------------------- bounded in-process stores
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_memory_exact_store_is_bounded() -> None:
+    # Found in review: an entry only left when its own key was read again.
+    clock = _Clock()
+    store = MemoryExactStore(clock, max_items=3)
+    await store.set("old", reply(), ttl_s=10)
+    clock.now = 20  # "old" has expired
+    for k in ("a", "b", "c", "d"):
+        await store.set(k, reply(), ttl_s=600)
+    assert len(store._items) == 3
+    assert await store.get("a") is None  # the oldest live entry made room
+    assert await store.get("d") is not None
+
+
+async def test_memory_semantic_store_is_bounded() -> None:
+    clock = _Clock()
+    store = MemorySemanticStore(clock, max_entries=3)
     v = await vec("hello world")
-    for i in range(120):
-        await pg_store.insert(f"other-{i}", v, reply(), guard="g", ttl_s=600)
-    far = await vec("hello world and a rather different tail")
-    await pg_store.insert("mine", far, reply(), guard="g", ttl_s=600)
-    hit = await pg_store.lookup("mine", v, threshold=0.0, max_tokens=100, guard="g")
-    assert hit is not None
+    await store.insert("ns", v, reply("expired"), guard="g", ttl_s=5)
+    clock.now = 10
+    for i in range(4):
+        await store.insert(f"ns{i % 2}", v, reply(f"r{i}"), guard="g", ttl_s=600 + i)
+    assert sum(len(e) for e in store._items.values()) == 3
+    assert "ns" not in store._items or store._items["ns"] == []

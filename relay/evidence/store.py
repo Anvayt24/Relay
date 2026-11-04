@@ -16,7 +16,7 @@ right now", never as a request failure.
 
 import json
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -49,6 +49,8 @@ class ShadowPair:
     candidate_text: str | None = None
     reference_text: str | None = None
     cost_nano_usd: int = 0
+    # When the three texts above must be deleted (the tenant's retention_days); None: no text.
+    text_expires_at: datetime | None = None
 
     def judged(self) -> JudgedPair:
         return JudgedPair(
@@ -78,7 +80,18 @@ class EvidenceStore(Protocol):
     async def load_pairs(self) -> list[JudgedPair]: ...
     async def import_labels(self, labels: Sequence[HumanLabel]) -> int: ...
     async def load_cards(self) -> list[RouteCard]: ...
-    async def save_cards(self, cards: Sequence[RouteCard]) -> None: ...
+
+    async def purge_expired_text(self, now: datetime) -> int:
+        """Delete the prompt and response text of every pair whose retention ended; the
+        verdict, the hashes and the labels stay. Returns how many pairs lost their text."""
+        ...
+
+    async def save_cards(self, cards: Sequence[RouteCard]) -> None:
+        """Replace the whole set of cards with ``cards``. A card the worker no longer computes
+        (a route that lost its evidence section, a cohort that vanished or merged) must go:
+        an upsert kept it, and the board kept enforcing it (found in review)."""
+        ...
+
     async def start(self) -> None: ...
     async def close(self) -> None: ...
 
@@ -122,8 +135,24 @@ class MemoryEvidenceStore:
         return list(self.cards.values())
 
     async def save_cards(self, cards: Sequence[RouteCard]) -> None:
-        for card in cards:
-            self.cards[card.key] = card
+        self.cards = {card.key: card for card in cards}
+
+    async def purge_expired_text(self, now: datetime) -> int:
+        expired = [
+            i
+            for i, p in enumerate(self.pairs)
+            if p.text_expires_at is not None and p.text_expires_at <= now
+        ]
+        for i in expired:
+            self.pairs[i] = replace(
+                self.pairs[i],
+                prompt_text=None,
+                candidate_text=None,
+                reference_text=None,
+                text_retained=False,
+                text_expires_at=None,
+            )
+        return len(expired)
 
 
 _PAIR_COLUMNS = [
@@ -147,6 +176,7 @@ _PAIR_COLUMNS = [
     "candidate_text",
     "reference_text",
     "cost_nano_usd",
+    "text_expires_at",
 ]
 
 # The first non-relabel human label of each pair, joined on. Pairs without a route (pilot and
@@ -260,13 +290,25 @@ class PostgresEvidenceStore:
             )
         return len(new)
 
+    async def purge_expired_text(self, now: datetime) -> int:
+        async with self._need_pool().acquire() as conn:
+            status = await conn.execute(
+                "UPDATE eval_pairs SET prompt_text = NULL, candidate_text = NULL,"
+                " reference_text = NULL, text_retained = false, text_expires_at = NULL"
+                " WHERE text_expires_at <= $1",
+                now,
+            )
+        return int(status.split()[-1])  # "UPDATE <n>"
+
     async def load_cards(self) -> list[RouteCard]:
         async with self._need_pool().acquire() as conn:
             rows = await conn.fetch("SELECT card FROM route_cards")
         return [card_from_dict(json.loads(r["card"])) for r in rows]
 
     async def save_cards(self, cards: Sequence[RouteCard]) -> None:
+        # One transaction: readers (the boards) see the old set or the new one, never neither.
         async with self._need_pool().acquire() as conn, conn.transaction():
+            await conn.execute("DELETE FROM route_cards")
             await conn.executemany(
                 _UPSERT_CARD,
                 [

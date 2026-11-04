@@ -36,6 +36,13 @@ from relay.schemas.errors import ErrorClass, RelayError
 
 logger = logging.getLogger(__name__)
 
+# How long a stream's money stays held beyond its deadline. A stream is not bound by the
+# deadline after its first byte (ADR 0008), so a hold that expired at deadline + 60 s (found in
+# review) could vanish while a long stream was still spending, letting others reserve that
+# money. The TTL is only the safety net for a replica that dies before settling; a long one
+# holds budget a little longer, which fails safe (no overspend).
+STREAM_HOLD_S = 1800.0
+
 REJECTED = Counter(
     "relay_admission_rejected_total", "Requests refused by admission or reservation.", ["reason"]
 )
@@ -188,8 +195,9 @@ class ReservationStage:
         held = False
         if nano > 0:
             limit = int(tenant.budget_usd_daily * NANO_PER_USD)
-            # Held until the request's deadline (plus a margin), then it expires by itself.
-            ttl = max(1.0, ctx.deadline - time.monotonic()) + 60
+            # Held until the request's deadline (plus a margin, or for a stream, long enough to
+            # outlive it), then it expires by itself.
+            ttl = max(1.0, ctx.deadline - time.monotonic()) + (STREAM_HOLD_S if ctx.stream else 60)
             try:
                 held = await self._store.reserve(
                     budget, res_id, amount=nano, limit=limit, ttl_s=ttl

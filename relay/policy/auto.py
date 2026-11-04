@@ -41,7 +41,8 @@ def rollback_unsafe_canary(store: PolicyStore) -> Callable[[RouteCard], Awaitabl
         try:
             await store.change("rollback", transition, actor=ACTOR, reason=reason)
         except ControlError as e:
-            logger.info("automatic rollback skipped: %s", e)
+            # Expected on every run after the rollback (actions are re-applied each run).
+            logger.debug("automatic rollback skipped: %s", e)
             return
         logger.warning("canary %s rolled back automatically: %s", version, reason)
 

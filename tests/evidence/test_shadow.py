@@ -1,6 +1,7 @@
 """Shadow sampling through the real gateway (ADR 0022): what gets sampled, privacy, budget,
 and that the user's response never changes."""
 
+import asyncio
 import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from fastapi import FastAPI
 
 from relay.admission.store import MemoryStore
 from relay.api.app import create_app
+from relay.config.pricing import list_cost_nano
 from relay.config.schema import RelayConfig
 from relay.evidence.cards import RouteCard
 from relay.evidence.judge import JudgeResult
@@ -22,7 +24,8 @@ from relay.evidence.store import MemoryEvidenceStore
 from relay.pipeline.context import ProviderAttempt, RequestContext
 from relay.pipeline.stage import Outcome
 from relay.providers.mock import MockProvider
-from relay.schemas.chat import ChatRequest
+from relay.schemas.chat import ChatRequest, Usage
+from relay.schemas.errors import ErrorClass
 from relay.telemetry.log_writer import MemorySink
 
 from ..conftest import TEST_CONFIG_PATH, yaml_policy  # type: ignore[import-not-found]
@@ -191,6 +194,40 @@ async def test_the_daily_shadow_budget_caps_spend() -> None:
     assert store.pairs == [] and mock.calls == 1
 
 
+async def test_the_judge_is_skipped_while_its_breaker_is_open() -> None:
+    # Found in review: the judge called its adapter directly, past breakers and pauses, so
+    # during an outage it kept calling the provider the gateway itself was avoiding.
+    app, store, judge, _ = build(evidence_config())
+    breaker = app.state.dispatcher.breakers.get("judgep", "judge/model")
+    for _ in range(20):
+        permit = breaker.acquire()
+        if permit is None:
+            break
+        breaker.record(permit, ErrorClass.SERVER_ERROR)
+    async with serving(app) as c:
+        assert (await c.post(CHAT, json=body())).status_code == 200
+    assert store.pairs == [] and judge.calls == []
+
+
+async def test_the_shadow_spend_counts_the_judges_reported_usage() -> None:
+    class Wordy(ScriptedJudge):
+        async def judge(self, *, request: str, candidate: str, reference: str) -> JudgeResult:
+            await super().judge(request=request, candidate=candidate, reference=reference)
+            usage = Usage(prompt_tokens=1000, completion_tokens=5000, total_tokens=6000)
+            return JudgeResult("tie", False, "judge/model", "v1", usage=usage)
+
+    cfg = evidence_config()
+    app, store, _, _ = build(cfg, judge=Wordy())
+    async with serving(app) as c:
+        await c.post(CHAT, json=body())
+    [pair] = store.pairs
+    judge_cost = list_cost_nano(
+        cfg.models["judge/model"],
+        Usage(prompt_tokens=1000, completion_tokens=5000, total_tokens=6000),
+    )
+    assert pair.cost_nano_usd >= judge_cost
+
+
 async def test_metadata_only_tenants_store_no_text() -> None:
     app, store, _, _ = build(evidence_config(tenant={"logging": "metadata_only"}))
     async with serving(app) as c:
@@ -207,6 +244,9 @@ async def test_full_logging_tenants_keep_text_for_human_labeling() -> None:
         await c.post(CHAT, json=body())
     [pair] = store.pairs
     assert pair.text_retained and pair.prompt_text == "what is 2+2?"
+    # ...until the tenant's retention ends (30 days by default).
+    assert pair.text_expires_at is not None
+    assert 29.9 < (pair.text_expires_at - pair.ts).total_seconds() / 86400 <= 30
 
 
 async def test_an_abstaining_judge_still_stores_the_pair() -> None:
@@ -374,3 +414,20 @@ async def test_without_a_dispatcher_or_judge_nothing_is_called() -> None:
     await stage.finalize(ctx, Outcome("success"))
     await stage.drain()
     assert store.pairs == []
+
+
+async def test_a_replica_is_not_ready_until_it_has_read_the_cards() -> None:
+    # Before its first card refresh a replica would use every gated edge's seed state, even
+    # one a card says is unsafe (CardBoard.loaded used to be read by nothing).
+    app, _, _, _ = build(evidence_config())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://relay.test") as c:
+        r = await c.get("/readyz")  # no lifespan: the board has not polled yet
+    assert r.status_code == 503 and r.json()["status"] == "loading_cards"
+    async with serving(app) as c:
+        for _ in range(100):
+            r = await c.get("/readyz")
+            if r.status_code == 200:
+                break
+            await asyncio.sleep(0.01)
+    assert r.status_code == 200

@@ -13,6 +13,7 @@ import httpx
 import pytest
 import yaml
 from fastapi import FastAPI
+from prometheus_client import REGISTRY
 
 from relay.api.app import create_app
 from relay.config.schema import RelayConfig
@@ -76,7 +77,7 @@ def fallback_config(**evidence: Any) -> RelayConfig:
 async def test_card_states_map_to_edge_states_and_seeds_fill_the_gaps() -> None:
     cfg = fallback_config()
     store = MemoryEvidenceStore()
-    board = CardBoard(store, seeded=SeededEdgeStates(cfg))
+    board = CardBoard(store, seeded=SeededEdgeStates(cfg), now=lambda: NOW)
     assert board.state("safe", "p/model", "b/model") == "safe"  # the YAML seed, no card yet
     for state, edge in [
         ("safe", "safe"),
@@ -102,7 +103,7 @@ async def test_a_failed_refresh_keeps_the_last_cards() -> None:
             return await super().load_cards()
 
     store = Flaky()
-    board = CardBoard(store, seeded=SeededEdgeStates(fallback_config()))
+    board = CardBoard(store, seeded=SeededEdgeStates(fallback_config()), now=lambda: NOW)
     await store.save_cards([card("unsafe")])
     assert await board.refresh()
     store.down = True
@@ -223,10 +224,54 @@ async def test_the_worker_turns_pairs_into_cards_and_reports_actions() -> None:
     assert all_card.recommended_action == "disable_edge"
     assert [c.recommended_action for c in seen] == ["disable_edge"]
     assert store.cards[all_card.key].state == "unsafe"
-    # A second run at the same look changes nothing and reports nothing new.
+    # A second run at the same look changes nothing and logs nothing new, but the action is
+    # handed to the hook again: a crash between saving the cards and running the hook used to
+    # lose it for good (found in review), and the hooks are idempotent.
     seen.clear()
+    before = REGISTRY.get_sample_value(
+        "relay_evidence_actions_total", {"route": "safe", "action": "disable_edge"}
+    )
     await worker.run_once(store, fallback_config(), now=NOW, on_action=on_action)
-    assert seen == []
+    assert [c.recommended_action for c in seen] == ["disable_edge"]
+    after = REGISTRY.get_sample_value(
+        "relay_evidence_actions_total", {"route": "safe", "action": "disable_edge"}
+    )
+    assert after == before
+
+
+async def test_a_failing_action_hook_does_not_stop_the_run() -> None:
+    store = await _store_with(0.75)
+
+    async def broken(c: RouteCard) -> None:
+        raise ConnectionError("policy store down")
+
+    cards = await worker.run_once(store, fallback_config(), now=NOW, on_action=broken)
+    assert any(c.state == "unsafe" for c in cards)  # the cards were still computed and saved
+    assert store.cards
+
+
+async def test_saving_cards_replaces_the_whole_set() -> None:
+    # Found in review: an upsert kept cards the worker no longer computes (a route whose
+    # evidence section was removed), and the boards kept enforcing them.
+    store = MemoryEvidenceStore()
+    await store.save_cards([card("unsafe"), card("safe", comparison="cheap_vs_strong")])
+    await store.save_cards([card("safe", comparison="cheap_vs_strong")])
+    assert [c.comparison for c in await store.load_cards()] == ["cheap_vs_strong"]
+
+
+async def test_a_card_the_worker_stopped_updating_counts_as_undecided() -> None:
+    # Found in review: a dead worker's cards stayed in force indefinitely.
+    store = MemoryEvidenceStore()
+    clock = {"now": NOW}
+    board = CardBoard(
+        store, seeded=SeededEdgeStates(fallback_config()), max_age_s=600, now=lambda: clock["now"]
+    )
+    await store.save_cards([card("safe")])
+    await board.refresh()
+    assert board.state("safe", "p/model", "b/model") == "safe"
+    clock["now"] = NOW + timedelta(minutes=11)
+    assert board.state("safe", "p/model", "b/model") == "undecided"  # not back to the seed
+    assert board.card_state("safe", fallback_comparison("p/model", "b/model")) is None
 
 
 async def test_the_worker_ignores_routes_without_evidence() -> None:
@@ -283,3 +328,25 @@ def test_label_rows_from_the_labeling_tool() -> None:
 
 def test_calibration_helper_is_calibrated() -> None:
     assert all(c.calibrated for c in calibration_set().values())
+
+
+async def test_text_past_its_retention_is_deleted_by_the_worker() -> None:
+    # Found in review: `retention_days` was declared and never enforced, while `full` logging
+    # keeps prompt text in shadow pairs.
+    store = await _store_with(0.97)
+    kept = store.pairs[0]
+    store.pairs[0] = replace(
+        kept, prompt_text="q", candidate_text="a", reference_text="b", text_retained=True,
+        text_expires_at=NOW - timedelta(seconds=1),
+    )  # fmt: skip
+    store.pairs[1] = replace(
+        store.pairs[1],
+        prompt_text="q2",
+        text_retained=True,
+        text_expires_at=NOW + timedelta(days=1),
+    )
+    await worker.run_once(store, fallback_config(), now=NOW)
+    first, second = store.pairs[0], store.pairs[1]
+    assert (first.prompt_text, first.candidate_text, first.reference_text) == (None, None, None)
+    assert not first.text_retained and first.judge_label == kept.judge_label  # verdict stays
+    assert second.prompt_text == "q2"

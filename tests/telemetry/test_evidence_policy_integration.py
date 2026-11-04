@@ -12,7 +12,7 @@ import pytest
 from relay.evidence.cards import CardSpec, calibration_by_judge, compute_cards
 from relay.evidence.store import HumanLabel, PostgresEvidenceStore, ShadowPair
 from relay.policy import control
-from relay.policy.bundle import PolicyBundle, RoutePolicy
+from relay.policy.bundle import BundleError, PolicyBundle, RoutePolicy
 from relay.policy.control import ControlError
 from relay.policy.store import PostgresPolicyStore
 from relay.settings import Settings
@@ -132,7 +132,8 @@ async def test_policy_store_round_trip(schema: tuple[asyncpg.Connection, str]) -
         await conn.execute(
             "UPDATE policy_bundles SET content_sha256 = 'bad' WHERE version = $1", a.version
         )
-        with pytest.raises(ControlError, match="does not match"):
+        # A BundleError, so the poller counts it as invalid_bundle, not as the store being down.
+        with pytest.raises(BundleError, match="does not match"):
             await store.get(a.version)
     finally:
         await store.close()
@@ -194,5 +195,23 @@ async def test_shadow_pairs_export_for_labeling_and_labels_import_back(
         labels = [HumanLabel(p.id, "loss", "a1", False, t0) for p in exported]
         assert await store.import_labels(labels) == 4  # the labels land on the shadow pairs
         assert await store.labelable_pairs("default", 100) == []
+    finally:
+        await store.close()
+
+
+async def test_expired_text_is_purged_in_postgres(schema: tuple[asyncpg.Connection, str]) -> None:
+    from dataclasses import replace
+
+    conn, dsn = schema
+    store = PostgresEvidenceStore(dsn)
+    await store.start()
+    try:
+        t0 = datetime.now(UTC)
+        old = replace(shadow_pair(0, "tie", t0), text_expires_at=t0 - timedelta(seconds=1))
+        new = replace(shadow_pair(2, "tie", t0), text_expires_at=t0 + timedelta(days=1))
+        await store.write_pairs([old, new])
+        assert await store.purge_expired_text(t0) == 1
+        rows = await conn.fetch("SELECT pair_id, prompt_text FROM eval_pairs ORDER BY pair_id")
+        assert [(r["pair_id"], r["prompt_text"]) for r in rows] == [("s0", None), ("s2", "hi")]
     finally:
         await store.close()

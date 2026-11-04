@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     # Types only: the policy runtime builds routers, which import this module.
     from relay.policy.runtime import BuiltPolicy, PolicySnapshot
+    from relay.reliability.candidates import Candidate
 
 
 @dataclass
@@ -57,6 +58,19 @@ class ProviderAttempt:
 
 
 @dataclass
+class ProviderHold:
+    """Provider TPM taken for one upstream call (FR-4: admitted against the serving provider's
+    capacity). Taken at the worst case (prompt + output cap); the unused part is refunded when
+    the request ends (ProviderStage.finalize)."""
+
+    provider: str
+    model: str  # Relay name: one call per model per request (a retry takes no capacity)
+    capacity: int  # the provider's tpm, for the refund
+    tokens: int  # taken
+    prompt: int  # the estimated prompt part of it
+
+
+@dataclass
 class RequestContext:
     request_id: str
     tenant: Tenant
@@ -74,7 +88,11 @@ class RequestContext:
     # Every stage reads route policy from it, so a swap mid-request can't mix two policies.
     applied: "BuiltPolicy"
     decision: RouteDecision | None = None
+    # The dispatcher's candidate plan, made once: the reservation is sized for it and the
+    # dispatcher walks it, so both see the same edge states even if a card changes in between.
+    plan: "list[Candidate] | None" = None
     attempts: list[ProviderAttempt] = field(default_factory=list)
+    provider_holds: list[ProviderHold] = field(default_factory=list)
     # Two clocks for two jobs. Monotonic for measuring durations: it never jumps. Wall-clock
     # UTC for the timestamp stored in the log row: it means something to humans and joins
     # across machines.

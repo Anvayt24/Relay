@@ -6,7 +6,7 @@ default rates. The cost is then read back from where Relay records it:
 
 - **routed spend:** the request log's list cost (``requests.list_cost_nano_usd``);
 - **evidence spend:** each shadow pair's ``cost_nano_usd`` (the shadow call's list cost plus
-  the judge call's estimated list cost).
+  the judge call's list cost, from the usage the judge's provider reported).
 
 Both at **list** price, because free tiers make billed spend about $0 and the ratio would be
 undefined (M8's definition). The traffic mix is the router's: about 37% of requests served

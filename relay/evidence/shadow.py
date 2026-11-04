@@ -32,7 +32,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from prometheus_client import Counter
 
@@ -62,13 +62,16 @@ SHADOW = Counter(
 )
 
 MAX_PENDING = 50
-JUDGE_MAX_TOKENS = 16
 
 # A judge, by Relay model name and output cap; None when that model has no adapter (no key).
 type JudgeFactory = Callable[[str, int], Judge | None]
 # The dispatcher's entry point (``ReliableDispatcher.run``), as a callable so tests can stand
 # in for it. For a non-streaming request it returns a ChatResponse.
 type ShadowCall = Callable[[RequestContext], Awaitable[object]]
+# Whether (provider, model, provider model) may be called now: ``ReliableDispatcher.available``.
+# The judge calls its adapter directly, not through the dispatcher, so this is how it still
+# respects pauses and open breakers (found in review: during an outage it kept calling).
+type Availability = Callable[[str, str, str], Awaitable[bool]]
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,7 @@ class ShadowStage:
     ) -> None:
         self._models = models
         self._call: ShadowCall | None = None  # set by bind()
+        self._available: Availability | None = None
         self._judges = judges
         self._store = store
         self._budget = budget
@@ -169,9 +173,10 @@ class ShadowStage:
         """Make sampling reproducible (the M8 cost experiment)."""
         self._rng = random.Random(seed)
 
-    def bind(self, call: ShadowCall) -> None:
-        """Set the shadow-call entry point (the dispatcher is built after this stage)."""
+    def bind(self, call: ShadowCall, available: Availability) -> None:
+        """Set the dispatcher's entry points (the dispatcher is built after this stage)."""
         self._call = call
+        self._available = available
 
     async def process(self, ctx: RequestContext) -> StageResult:
         return Continue()
@@ -240,13 +245,19 @@ class ShadowStage:
         prompt = request_text(ctx.request)
         call_model = self._models[job.call]
         judge_model = self._models[spec.judge]
+        if self._available is not None and not await self._available(
+            judge_model.provider, spec.judge, judge_model.provider_model
+        ):
+            return "skipped_judge_unavailable"
 
-        # Budget: hold the worst case of both calls, settle to what they really cost.
+        # Budget: hold the worst case of both calls, settle to what they really cost. The
+        # judge's worst case is its configured output cap (found in review: a fixed 16 tokens,
+        # under-counting a reasoning judge with a cap of hundreds by up to 50x).
         cap = output_cap(ctx.request, call_model)
         estimate = list_cost_nano(
             call_model,
             Usage(prompt_tokens=prompt_tokens(ctx.request), completion_tokens=cap, total_tokens=0),
-        ) + _judge_cost(judge_model, text_tokens(prompt + answer) + cap)
+        ) + _judge_cost(judge_model, text_tokens(prompt + answer) + cap, spec.judge_max_tokens)
         day = datetime.now(UTC).strftime("%Y%m%d")
         budget_key, res_id = f"shadow:{ctx.route}:{day}", uuid.uuid4().hex
         limit = int(spec.shadow_budget_usd_per_day * NANO_PER_USD)
@@ -293,13 +304,20 @@ class ShadowStage:
                 (shadow_text, answer) if job.call == job.candidate else (answer, shadow_text)
             )
             result = await judge.judge(request=prompt, candidate=candidate, reference=reference)
-            spent += _judge_cost(judge_model, text_tokens(prompt + candidate + reference))
+            spent += (
+                list_cost_nano(judge_model, result.usage)
+                if result.usage is not None
+                else _judge_cost(
+                    judge_model, text_tokens(prompt + candidate + reference), spec.judge_max_tokens
+                )
+            )
         finally:
             # If the store is down the reservation expires by itself (its ttl).
             with contextlib.suppress(StoreUnavailable):
                 await self._budget.settle(budget_key, res_id, actual=spent)
 
         keep_text = ctx.tenant.logging == "full"
+        now = datetime.now(UTC)
         row = ShadowPair(
             pair_id=f"shadow-{uuid.uuid4().hex[:16]}",
             request_id=ctx.request_id,
@@ -314,12 +332,13 @@ class ShadowStage:
             judge_prompt_version=result.prompt_version,
             position_swapped=result.position_swapped,
             text_retained=keep_text,
-            ts=datetime.now(UTC),
+            ts=now,
             policy_version=ctx.policy_version,
             prompt_text=prompt if keep_text else None,
             candidate_text=candidate if keep_text else None,
             reference_text=reference if keep_text else None,
             cost_nano_usd=spent,
+            text_expires_at=now + timedelta(days=ctx.tenant.retention_days) if keep_text else None,
         )
         try:
             await self._store.write_pairs([row])
@@ -329,12 +348,12 @@ class ShadowStage:
         return "judged" if result.label is not None else "abstained"
 
 
-def _judge_cost(model: ModelSpec, text_tokens_in: int) -> int:
-    """List-price estimate of one judge call: the rubric plus the three texts in, a one-word
-    verdict out. An estimate (the judge's own usage isn't reported back), used for the shadow
-    budget and the M8 cost share."""
+def _judge_cost(model: ModelSpec, text_tokens_in: int, max_tokens: int) -> int:
+    """List-price estimate of one judge call: the rubric plus the three texts in, the judge's
+    full output cap out. For the reservation, and for the settle when the provider reported no
+    usage."""
     tokens_in = text_tokens(SYSTEM) + text_tokens_in + 40  # 40: delimiters and labels
     return list_cost_nano(
         model,
-        Usage(prompt_tokens=tokens_in, completion_tokens=JUDGE_MAX_TOKENS, total_tokens=0),
+        Usage(prompt_tokens=tokens_in, completion_tokens=max_tokens, total_tokens=0),
     )

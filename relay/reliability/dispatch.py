@@ -35,7 +35,7 @@ from relay.admission.tokens import output_cap, prompt_tokens
 from relay.config.models import ModelSpec
 from relay.config.pricing import Pricing
 from relay.config.schema import RelayConfig
-from relay.pipeline.context import ProviderAttempt, RequestContext
+from relay.pipeline.context import ProviderAttempt, ProviderHold, RequestContext
 from relay.pipeline.streaming import PrimedStream, prime
 from relay.providers.base import ProviderAdapter
 from relay.reliability.backoff import full_jitter
@@ -85,6 +85,8 @@ class _Run:
     waits: list[float] = field(default_factory=list)
     # Why the previous candidate was left: the label on relay_fallbacks_total.
     left_because: str | None = None
+    # The context-length error that set context_floor.
+    context_error: ProviderError | None = None
 
 
 class ReliableDispatcher:
@@ -130,16 +132,59 @@ class ReliableDispatcher:
         return self._breakers
 
     def plan(self, ctx: RequestContext) -> list[Candidate]:
+        """The request's candidates, planned once and kept on the context. Planning twice (once
+        for the reservation, once to dispatch; found in review) could see a card change in
+        between and dispatch to a model the reservation never priced."""
         if ctx.decision is None:
             raise RuntimeError("dispatch needs a route decision; RouteStage goes first")
-        return plan_candidates(
-            config=ctx.applied.config,  # the request's route policy (ADR 0023)
-            models=self._models,
-            route=ctx.route,
-            tenant=ctx.tenant,
-            decision=ctx.decision,
-            edge_states=self._edge_states,
-        )
+        if ctx.plan is None:
+            ctx.plan = plan_candidates(
+                config=ctx.applied.config,  # the request's route policy (ADR 0023)
+                models=self._models,
+                route=ctx.route,
+                tenant=ctx.tenant,
+                decision=ctx.decision,
+                edge_states=self._edge_states,
+            )
+        return ctx.plan
+
+    async def available(self, provider: str, model: str, provider_model: str) -> bool:
+        """Whether a call to this model would be admitted right now: not paused, breaker not
+        open. For callers outside the request path (the shadow stage's judge) that must not
+        keep calling a provider the gateway itself is avoiding. Takes nothing."""
+        if await self._pause.paused_for(provider, provider_model) > 0:
+            return False
+        return self._breakers.get(provider, model).state is not BreakerState.OPEN
+
+    async def release_provider_tokens(self, ctx: RequestContext) -> None:
+        """Refund the provider TPM each call took but didn't use (found in review: never
+        refunded, so a provider's effective limit was several times below its configured one).
+        The serving call keeps what it really used; a failed call keeps its prompt, which a
+        provider may count."""
+        holds, ctx.provider_holds = ctx.provider_holds, []
+        if not holds:
+            return
+        served = ctx.served
+        used_by_served = 0
+        if ctx.usage is not None:
+            used_by_served = ctx.usage.total_tokens
+        elif ctx.forwarded_tokens > 0:
+            used_by_served = prompt_tokens(ctx.request) + ctx.forwarded_tokens
+        for hold in holds:
+            is_served = served is not None and (hold.provider, hold.model) == (
+                served.provider,
+                served.model,
+            )
+            used = used_by_served if is_served else hold.prompt
+            unused = hold.tokens - used
+            if unused <= 0:
+                continue
+            try:
+                await self._store.refund(
+                    f"ptpm:{hold.provider}", capacity=hold.capacity, amount=unused
+                )
+            except StoreUnavailable:
+                return  # the bucket refills on its own; a refund is best effort
 
     async def run(self, ctx: RequestContext) -> ChatResponse | PrimedStream:
         """The response (or primed stream) of the first candidate that works. Raises
@@ -213,7 +258,7 @@ class ReliableDispatcher:
                 run.waits.append(breaker.retry_after_s())
             return None, "breaker_open"
         try:
-            wait = await self._take_provider_capacity(ctx, spec)
+            wait = await self._take_provider_capacity(ctx, spec, candidate.model)
         except BaseException:
             breaker.release(permit)  # cancelled while holding a probe slot: give it back
             raise
@@ -223,7 +268,9 @@ class ReliableDispatcher:
             return None, "provider_capacity"
         return permit, None
 
-    async def _take_provider_capacity(self, ctx: RequestContext, spec: ModelSpec) -> float:
+    async def _take_provider_capacity(
+        self, ctx: RequestContext, spec: ModelSpec, model: str
+    ) -> float:
         """FR-4: traffic is admitted against the capacity of the provider that will serve
         it, so a primary outage can't stampede a small free-tier fallback. Only providers
         with configured rpm/tpm are limited. 0 = admitted."""
@@ -239,12 +286,13 @@ class ReliableDispatcher:
                 if wait > 0:
                     return wait
             if provider.tpm is not None:
-                needed = prompt_tokens(ctx.request) + output_cap(ctx.request, spec)
+                prompt = prompt_tokens(ctx.request)
+                taken = min(prompt + output_cap(ctx.request, spec), provider.tpm)
                 wait = await self._store.take(
                     f"ptpm:{spec.provider}",
                     capacity=provider.tpm,
                     refill_per_s=provider.tpm / 60,
-                    amount=min(needed, provider.tpm),
+                    amount=taken,
                 )
                 if wait > 0:
                     if provider.rpm is not None:
@@ -252,6 +300,9 @@ class ReliableDispatcher:
                             f"prpm:{spec.provider}", capacity=provider.rpm, amount=1
                         )
                     return wait
+                ctx.provider_holds.append(
+                    ProviderHold(spec.provider, model, provider.tpm, taken, min(prompt, taken))
+                )
         except StoreUnavailable:
             # These limits only keep Relay under the provider's own 429s; the pause state
             # still catches those. Not worth refusing traffic over.
@@ -328,6 +379,7 @@ class ReliableDispatcher:
                 if e.error_class in CONTEXT_FALLBACK:
                     # Only a model with a larger *known* window can take this prompt.
                     run.context_floor = float(spec.context_window or math.inf)
+                    run.context_error = e
                 elif not can_fall_back(e.error_class):
                     run.stop = True
                 return None
@@ -406,6 +458,11 @@ class ReliableDispatcher:
         if run.stop and last is not None:
             # The request itself was the problem (bad_request, content_filtered): another
             # model wouldn't help, so the client gets that error, as before Phase 7.
+            return RelayError.from_provider(last)
+        if run.context_error is not None and last is run.context_error:
+            # The prompt is too long, and no model with a larger window could take it (none
+            # was called after). A deterministic client error: the provider's 400, not a
+            # retryable 503 (found in review).
             return RelayError.from_provider(last)
         if run.deadline_hit:
             return RelayError(

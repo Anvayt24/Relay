@@ -317,3 +317,50 @@ async def test_an_unexpected_exception_gives_the_probe_slot_back() -> None:
     with pytest.raises(RuntimeError):
         await d.run(make_ctx(route="none"))
     assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes
+
+
+# ------------------------------------------------------------------ review: medium fixes
+async def test_the_plan_is_made_once_and_dispatch_follows_it() -> None:
+    # The reservation is sized from the plan, so dispatch must walk the very same plan (found
+    # in review: it re-planned, and a card changing in between could add an unpriced model).
+    provs = providers(primary=fail(ErrorClass.SERVER_ERROR))
+    d = dispatcher(provs)
+    ctx = make_ctx(route="safe")
+    plan = d.plan(ctx)
+    assert d.plan(ctx) is plan  # planned once
+    ctx.plan = plan[:1]  # as if the backup edge hadn't been usable when the plan was made
+    with pytest.raises(RelayError):
+        await d.run(ctx)
+    assert provs["backup"].calls == 0
+
+
+async def test_a_prompt_too_long_for_every_model_is_the_providers_400() -> None:
+    # Found in review: with no larger-window model left it ended as a retryable 503.
+    provs = providers(primary=fail(ErrorClass.CONTEXT_LENGTH_EXCEEDED))
+    with pytest.raises(RelayError) as exc:
+        await dispatcher(provs).run(make_ctx(route="safe"))  # b/model: the same 8k window
+    assert exc.value.error_class is ErrorClass.CONTEXT_LENGTH_EXCEEDED
+    assert exc.value.status == 400
+
+
+async def test_unused_provider_tokens_are_refunded() -> None:
+    # Found in review: provider TPM was taken at the worst case and never given back.
+    providers_cfg = {
+        **FALLBACK_CONFIG.providers,
+        "primary": FALLBACK_CONFIG.providers["primary"].model_copy(update={"tpm": 2000}),
+    }
+    config = FALLBACK_CONFIG.model_copy(update={"providers": providers_cfg})
+    clock = FakeClock()
+    store = MemoryStore(clock=clock)  # a frozen clock: buckets never refill by themselves
+    d = build_dispatcher(config, dict(providers()), store=store, clock=clock)  # type: ignore[arg-type]
+    ctx = make_ctx(route="none", config=config)
+    assert isinstance(await d.run(ctx), ChatResponse)
+    [hold] = ctx.provider_holds
+    assert hold.tokens > 1000  # prompt + the 1024 output cap
+    await d.release_provider_tokens(ctx)
+    assert ctx.provider_holds == []
+    used = ctx.usage.total_tokens if ctx.usage else 0
+    wait = await store.take(
+        "ptpm:primary", capacity=2000, refill_per_s=2000 / 60, amount=2000 - used
+    )
+    assert wait == 0  # everything but what the call really used came back

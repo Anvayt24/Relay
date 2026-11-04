@@ -99,8 +99,8 @@ Why `lambda = 1` for E1: PPI++ tunes lambda on human labels from *before* the ch
 
 | sample rate | requests | shadow pairs | routed list cost | evidence list cost | share |
 |---|---|---|---|---|---|
-| 0.05 | 1000 | 22 | $0.1728 | $0.0072 | 4.19% |
-| 0.01 | 1000 | 5 | $0.1728 | $0.0016 | 0.95% |
+| 0.05 | 1000 | 22 | $0.1728 | $0.0065 | 3.76% |
+| 0.01 | 1000 | 5 | $0.1728 | $0.0015 | 0.86% |
 
 Traffic mix: 37% cheap (the simulated router's share); judge mock/cheap. M8 **met**.
 

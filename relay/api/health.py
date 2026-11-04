@@ -37,6 +37,12 @@ async def readyz(request: Request, response: Response) -> dict[str, Any]:
         # Shutting down: take this replica out of the load balancer (PRD §8).
         response.status_code = 503
         return {"status": "draining", "dependencies": dependencies, "policy": policy}
+    board = getattr(request.app.state, "card_board", None)
+    if board is not None and not board.loaded and not board.first_attempt_done:
+        # Same rule as the policy: a replica that hasn't read the route cards yet would use
+        # every gated edge's seed state, even one a card says is unsafe.
+        response.status_code = 503
+        return {"status": "loading_cards", "dependencies": dependencies, "policy": policy}
     poller = getattr(request.app.state, "policy_poller", None)
     if poller is not None and not poller.first_attempt_done:
         # PRD FR-1: not ready until the policy is loaded. Only the first poll is waited for:

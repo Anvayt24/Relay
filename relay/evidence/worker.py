@@ -8,15 +8,21 @@ bootstraps, which has no place next to request handling. The gateway only reads 
 cards (``board.py``).
 
 Each run:
+0. deletes the prompt and response text of pairs past their tenant's ``retention_days``;
 1. loads every pair with its first human label (pairs without a route, such as the pilot's
    and public calibration sets, calibrate the judge);
 2. computes the judge's M7 numbers per judge model and prompt version;
 3. computes cards for every route with an ``evidence:`` section, at pre-registered looks,
    given the previous cards (a decided state changes only at a new look);
-4. saves them, and reports the **actions** whose card just changed (§10.7):
-   ``disable_edge`` takes effect by itself (the card board turns the edge unsafe on every
-   replica); ``rollback`` is handed to ``on_action`` (Phase 13 rolls the canary back);
-   promotions are only ever recommended (ADR 0022).
+4. saves them (replacing the previous set), and hands every card with a loud **action** to
+   ``on_action`` (§10.7). ``disable_edge`` takes effect by itself (the card board turns the
+   edge unsafe on every replica); ``rollback`` rolls the canary back (Phase 13); promotions
+   are only ever recommended (ADR 0022). Actions are counted and logged when a card changes.
+
+**Actions are re-applied on every run, not only on a change** (found in review). The cards are
+saved before their actions run, so a crash or a failing hook in between used to lose the
+action for good: the next run saw the card unchanged. The hooks are idempotent (a rollback of
+a canary that is no longer running does nothing), so repeating them is safe.
 """
 
 import argparse
@@ -75,6 +81,10 @@ async def run_once(
     on_action: ActionHook | None = None,
 ) -> list[RouteCard]:
     now = now or datetime.now(UTC)
+    # Privacy first: text past its tenant's retention is deleted on every run (PRD §8).
+    purged = await store.purge_expired_text(now)
+    if purged:
+        logger.info("deleted the text of %d pairs past their retention", purged)
     pairs = await store.load_pairs()
     calibration = calibration_by_judge(pairs)
     previous = {c.key: c for c in await store.load_cards()}
@@ -89,22 +99,25 @@ async def run_once(
     await store.save_cards(cards)
 
     for card in cards:
-        prev = previous.get(card.key)
-        changed = prev is None or (prev.state, prev.look) != (card.state, card.look)
-        if card.cohort != ALL or not changed or card.recommended_action not in LOUD:
+        if card.cohort != ALL or card.recommended_action not in LOUD:
             continue
-        ACTIONS.labels(card.route, card.recommended_action).inc()
-        logger.warning(
-            "route %s %s: %s (w=%s, ci=%s) -> %s",
-            card.route,
-            card.comparison,
-            card.state,
-            None if card.estimate is None else round(card.estimate, 4),
-            card.ci,
-            card.recommended_action,
-        )
+        prev = previous.get(card.key)
+        if prev is None or (prev.state, prev.look) != (card.state, card.look):
+            ACTIONS.labels(card.route, card.recommended_action).inc()
+            logger.warning(
+                "route %s %s: %s (w=%s, ci=%s) -> %s",
+                card.route,
+                card.comparison,
+                card.state,
+                None if card.estimate is None else round(card.estimate, 4),
+                card.ci,
+                card.recommended_action,
+            )
         if on_action is not None:
-            await on_action(card)
+            try:
+                await on_action(card)
+            except Exception:  # one failing hook must not stop the others; retried next run
+                logger.exception("action %s for %s failed", card.recommended_action, card.key)
     return cards
 
 

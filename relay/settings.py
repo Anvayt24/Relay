@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # How often each replica re-reads the route cards the evidence worker writes (Phase 12).
     # A card change (an edge turning unsafe) reaches every replica within this interval.
     card_poll_s: float = 5.0
+    # A card the worker hasn't re-stamped for this long is ignored (the worker is down, so its
+    # state may be out of date): its edge is treated as undecided. 20 worker runs at 30 s.
+    card_max_age_s: float = 600.0
     # How often each replica re-reads the policy pointer (Phase 13): a rollback reaches every
     # replica within this interval (PRD FR-11's config-propagation interval).
     policy_poll_s: float = 5.0

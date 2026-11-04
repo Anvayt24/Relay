@@ -19,6 +19,7 @@ key cache; keys not yet cached fail until recovery"):
   guesses, from turning every request into a database query.
 """
 
+import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,6 +59,9 @@ class MemoryKeyStore:
         return None
 
 
+LOOKUP_TIMEOUT_S = 3.0
+
+
 class PostgresKeyStore:
     QUERY = "SELECT tenant FROM api_keys WHERE key_hash = $1 AND status = 'active'"
 
@@ -80,8 +84,13 @@ class PostgresKeyStore:
         if self._pool is None:
             raise KeyStoreUnavailable("key store not started")
         try:
-            tenant: str | None = await self._pool.fetchval(self.QUERY, key_hash)
-        except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
+            # Bounded as a whole: waiting for one of the pool's 4 connections has no timeout of
+            # its own, and command_timeout only starts once a connection is held.
+            async with asyncio.timeout(LOOKUP_TIMEOUT_S):
+                tenant: str | None = await self._pool.fetchval(self.QUERY, key_hash)
+        except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError, TimeoutError) as exc:
+            # InterfaceError (a pool closing, a connection in use) is not a PostgresError:
+            # uncaught, it became a 500 instead of 503 auth_unavailable (found in review).
             raise KeyStoreUnavailable(repr(exc)) from exc
         return tenant
 
@@ -135,6 +144,11 @@ class CachedKeyStore:
                 return entry.tenant  # stale, but this key was valid moments ago
             raise
         if len(self._entries) >= self._max_entries:
-            self._entries.clear()  # crude bound on memory; a full clear only costs re-lookups
+            # Bound on memory. Unknown keys go first: a client spraying random keys fills the
+            # cache with them, and clearing everything would also drop the valid keys that let
+            # clients through a Postgres outage (stale_if_error).
+            self._entries = {k: e for k, e in self._entries.items() if e.tenant is not None}
+            if len(self._entries) >= self._max_entries:
+                self._entries.clear()
         self._entries[key_hash] = _Entry(tenant, now)
         return tenant

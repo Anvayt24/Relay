@@ -171,7 +171,12 @@ def create_app(
                 if settings.database_url
                 else MemoryEvidenceStore()
             )
-        board = CardBoard(evidence_store, seeded=seeded, poll_s=settings.card_poll_s)
+        board = CardBoard(
+            evidence_store,
+            seeded=seeded,
+            poll_s=settings.card_poll_s,
+            max_age_s=settings.card_max_age_s,
+        )
         if any(t.evidence_sampling == "on" for t in config.tenants.values()):
             shadow = ShadowStage(
                 models,
@@ -197,7 +202,7 @@ def create_app(
         first_token_ceiling_s=settings.first_token_timeout_s,
     )
     if shadow is not None:
-        shadow.bind(dispatcher.run)
+        shadow.bind(dispatcher.run, dispatcher.available)
 
     # Policy bundles (Phase 13). The YAML policy serves until a bundle is activated; with a
     # database, every replica follows the pointer there (ADRs 0023, 0024). One factory builds
@@ -373,11 +378,12 @@ def _judge_factory(
 
     def factory(name: str, max_tokens: int) -> Judge | None:
         spec = models.get(name)
-        if spec is None:
+        adapter = providers.get(spec.provider) if spec is not None else None
+        if spec is None or adapter is None:
             return None
         if (name, max_tokens) not in built:
             built[name, max_tokens] = LLMJudge(
-                providers[spec.provider],
+                adapter,
                 model=spec.provider_model,
                 name=name,
                 max_tokens=max_tokens,

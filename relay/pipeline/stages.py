@@ -221,6 +221,7 @@ class ProviderStage:
             return Reject(e)
 
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
+        await self._dispatcher.release_provider_tokens(ctx)
         permit = ctx.breaker_permit
         if permit is None:
             return

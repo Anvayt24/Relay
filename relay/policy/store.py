@@ -18,7 +18,7 @@ from typing import Any, Protocol
 
 import asyncpg
 
-from relay.policy.bundle import PolicyBundle
+from relay.policy.bundle import BundleError, PolicyBundle
 from relay.policy.control import ControlError, Pointer, Transition
 
 
@@ -193,7 +193,9 @@ class PostgresPolicyStore:
             return None
         bundle = PolicyBundle.from_json(row["content"])
         if bundle.content_sha256 != row["content_sha256"]:
-            raise ControlError(f"bundle {version}: stored content does not match its hash")
+            # A BundleError, like every other "this bundle can't be applied": the poller then
+            # counts it as invalid_bundle, not as the store being down (found in review).
+            raise BundleError(f"bundle {version}: stored content does not match its hash")
         return bundle
 
     async def bundles(self) -> list[BundleInfo]:

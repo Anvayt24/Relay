@@ -254,5 +254,41 @@ async def test_the_dispatcher_plans_with_the_applied_bundles_graph() -> None:
         decision=RouteDecision("strong", "mock/strong", None, "alias", V2),
     )
     assert [c.model for c in dispatcher.plan(ctx)] == ["mock/strong"]  # the YAML: no graph
-    ctx.applied = built
+    ctx.applied, ctx.plan = built, None  # the plan is made once per request: start over
     assert [c.model for c in dispatcher.plan(ctx)] == ["mock/strong", "mock/cheap"]
+
+
+async def test_concurrent_refreshes_never_apply_an_older_pointer_last() -> None:
+    # Found in review: the admin API's refresh could interleave with the background poll, and
+    # an older pointer read was applied after a newer one (a rollback appeared, then reverted).
+    import asyncio
+
+    from relay.policy.poller import PolicyPoller
+    from relay.policy.store import MemoryPolicyStore
+
+    class Slow(MemoryPolicyStore):
+        """The first pointer read is slow and returns what was current *then*."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads = 0
+
+        async def pointer(self) -> Pointer:
+            self.reads += 1
+            snapshot = self._pointer
+            if self.reads == 1:
+                await asyncio.sleep(0.05)
+            return snapshot
+
+    store = Slow()
+    for b in (v1(), v2()):
+        await store.create(b, created_by="t")
+    await store.change("activate", lambda p: control.activate(p, V1), actor="t")
+    rt = runtime()
+    poller = PolicyPoller(store, rt, poll_s=60)
+    old = asyncio.create_task(poller.refresh())  # reads V1, slowly
+    await asyncio.sleep(0)
+    await store.change("activate", lambda p: control.activate(p, V2), actor="t")
+    await poller.refresh()  # the admin API's refresh, after the change
+    await old
+    assert rt.snapshot().active.version == V2

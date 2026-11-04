@@ -771,16 +771,16 @@
       "requests": 1000,
       "shadow_pairs": 22,
       "routed_list_nano_usd": 172753000,
-      "evidence_list_nano_usd": 7237800,
-      "share": 0.0419
+      "evidence_list_nano_usd": 6501000,
+      "share": 0.0376
     },
     "decided_rate": {
       "sample_rate": 0.01,
       "requests": 1000,
       "shadow_pairs": 5,
       "routed_list_nano_usd": 172753000,
-      "evidence_list_nano_usd": 1644900,
-      "share": 0.0095
+      "evidence_list_nano_usd": 1477500,
+      "share": 0.0086
     },
     "met": true
   },
@@ -813,7 +813,7 @@
     "false_safe_ppi_loss_blind": 0.0,
     "false_safe_judge_only_loss_blind": 0.935,
     "false_safe_ppi_drifted": 0.17,
-    "m8_share": 0.019,
+    "m8_share": 0.0171,
     "canary_bad_rolled_back": 0.65,
     "canary_good_rolled_back": 0.0
   }

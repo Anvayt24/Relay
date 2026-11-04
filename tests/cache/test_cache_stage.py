@@ -434,3 +434,30 @@ async def test_an_embedder_that_is_not_ready_is_skipped_silently() -> None:
         b = await c.post(CHAT, json=body())
     assert a.status_code == 200 and b.headers["x-relay-cache"] == "hit"  # exact layer works
     assert provider.calls == 1
+
+
+async def test_a_hit_logs_the_policy_that_produced_the_answer() -> None:
+    # Found in review: the route stage, which sets the policy of record, never runs on a hit,
+    # so with no bundle active a hit was logged under the static policy, not the router's.
+    import time
+
+    from relay.cache.stage import CacheStage
+    from relay.pipeline.context import RequestContext
+    from relay.schemas.chat import ChatRequest
+
+    stage = CacheStage(exact=MemoryExactStore())
+    ctx = RequestContext(
+        request_id="r",
+        tenant=TEST_CONFIG.tenants["test"],
+        request=ChatRequest.model_validate(body()),
+        route="default",
+        priority="interactive",
+        cohort=None,
+        policy_version="static-v0",
+        deadline=time.monotonic() + 60,
+        stream=False,
+        applied=yaml_policy(TEST_CONFIG),
+    )
+    reply = CachedReply("a", "stop", 1, 1, 0, "mock/cheap", "router-v7", time.time())
+    stage._hit(ctx, reply, "exact", "k" * 16, None)
+    assert ctx.policy_version == "router-v7"

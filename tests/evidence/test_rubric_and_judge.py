@@ -131,3 +131,15 @@ async def test_both_orders_turns_a_flip_into_a_tie() -> None:
     result = await judge.judge(request="q", candidate="a", reference="b")
     assert result.label == "tie"
     assert judge.calls == 2
+
+
+async def test_the_judge_reports_what_its_calls_used() -> None:
+    # The shadow budget is settled against it (found in review: it assumed 16 output tokens).
+    one = LLMJudge(FakeAdapter('{"verdict": "A_worse"}'), model="m", name="j")
+    assert (await one.judge(request="q", candidate="a", reference="b")).usage == Usage(
+        prompt_tokens=1, completion_tokens=1, total_tokens=2
+    )
+    adapter = FakeAdapter(*['{"verdict": "A_worse"}'] * 2)
+    both = LLMJudge(adapter, model="m", name="j", rng=random.Random(0), both_orders=True)
+    result = await both.judge(request="q", candidate="a", reference="b")
+    assert result.usage is not None and result.usage.total_tokens == 4  # both calls

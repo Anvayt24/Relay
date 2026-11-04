@@ -12,16 +12,28 @@ How it gets there without passing anything around:
 - ``JsonFormatter`` writes one JSON object per line: easy to ship, grep and parse.
 
 ``RELAY_LOG_FORMAT=text`` keeps human-readable lines (the ids at the end) for local runs.
+
+**Never written on the event loop** (CLAUDE.md: "logging is never on the hot path"; found in
+review: the handler wrote to stderr from the loop). The handler on the loggers is a
+``QueueHandler``: on the caller's thread it only adds the ids (they live in contextvars, so it
+must happen there), renders the message and puts the record on a bounded queue. A
+``QueueListener`` thread formats it and writes it. A full queue drops the line and counts it
+(``relay_log_lines_dropped_total``) instead of blocking the loop.
 """
 
+import atexit
+import copy
 import json
 import logging
+import queue
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from logging.handlers import QueueHandler, QueueListener
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
+from prometheus_client import Counter
 
 if TYPE_CHECKING:
     from relay.settings import Settings
@@ -33,6 +45,11 @@ _UVICORN = ("uvicorn", "uvicorn.error", "uvicorn.access")
 # Libraries that log every HTTP call at INFO. Logging is synchronous I/O, and one line per
 # upstream call would put logging on the request path (FR-8), so they are held at WARNING.
 _CHATTY = ("httpx", "httpcore", "huggingface_hub", "urllib3")
+MAX_QUEUED = 10_000
+
+DROPPED = Counter(
+    "relay_log_lines_dropped_total", "Log lines dropped because the log queue was full."
+)
 
 
 class RequestContextFilter(logging.Filter):
@@ -57,6 +74,8 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             out["exc_info"] = self.formatException(record.exc_info)
+        elif record.exc_text:  # rendered before the record crossed the queue
+            out["exc_info"] = record.exc_text
         return json.dumps(out, ensure_ascii=False)
 
 
@@ -80,12 +99,59 @@ class _StderrHandler(logging.StreamHandler):  # type: ignore[type-arg]
         return None
 
 
+class _QueueHandler(QueueHandler):
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        # Render the message now (its args may change or not survive the trip), and the
+        # traceback as text (exc_info holds frames); the listener's formatter does the rest.
+        record = copy.copy(record)
+        record.message = record.getMessage()
+        record.msg, record.args = record.message, None
+        if record.exc_info:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+            record.exc_info = None
+        return record
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            DROPPED.inc()
+
+
+_listener: QueueListener | None = None
+
+
+def _stop_listener() -> None:
+    """Flush what is queued and stop the writer thread (at exit, or before replacing it)."""
+    global _listener
+    if _listener is not None:
+        _listener.stop()
+        _listener = None
+
+
+atexit.register(_stop_listener)
+
+
 def make_handler(fmt: str) -> logging.Handler:
-    handler = _StderrHandler()
+    """The handler for the loggers: enqueue only. Starts the thread that writes the lines."""
+    global _listener
+    _stop_listener()
+    writer = _StderrHandler()
+    writer.setFormatter(JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT))
+    lines: queue.Queue[logging.LogRecord] = queue.Queue(MAX_QUEUED)
+    _listener = QueueListener(lines, writer)
+    _listener.start()
+    handler = _QueueHandler(lines)
     handler.addFilter(RequestContextFilter())
-    handler.setFormatter(JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT))
     handler.set_name("relay")
     return handler
+
+
+def writer_formatter() -> logging.Formatter | None:
+    """The formatter of the thread that writes the lines (for tests)."""
+    if _listener is None or not _listener.handlers:
+        return None
+    return _listener.handlers[0].formatter
 
 
 def configure_logging(settings: "Settings") -> None:

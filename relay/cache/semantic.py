@@ -89,10 +89,18 @@ class _Entry:
 
 class MemorySemanticStore:
     """Brute-force cosine over a namespace. Exact (no approximation), so it is also the
-    reference the pgvector store's results are compared with."""
+    reference the pgvector store's results are compared with.
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    Bounded, because a lookup is a loop over the namespace on the event loop: an insert drops
+    its namespace's expired entries, and past ``max_entries`` every expired entry and then the
+    oldest ones go (found in review: nothing was ever removed, so memory and per-lookup CPU
+    grew with traffic)."""
+
+    def __init__(
+        self, clock: Callable[[], float] = time.monotonic, *, max_entries: int = 10_000
+    ) -> None:
         self._clock = clock
+        self._max_entries = max_entries
         self._items: dict[str, list[_Entry]] = {}
 
     async def lookup(
@@ -131,9 +139,26 @@ class MemorySemanticStore:
         guard: str,
         ttl_s: int,
     ) -> None:
-        self._items.setdefault(namespace, []).append(
-            _Entry(np.asarray(embedding, dtype=np.float32), reply, guard, self._clock() + ttl_s)
-        )
+        now = self._clock()
+        live = [e for e in self._items.get(namespace, []) if e.expires_at > now]
+        live.append(_Entry(np.asarray(embedding, dtype=np.float32), reply, guard, now + ttl_s))
+        self._items[namespace] = live
+        if sum(len(entries) for entries in self._items.values()) > self._max_entries:
+            self._evict(now)
+
+    def _evict(self, now: float) -> None:
+        """Drop every expired entry; if still too many, the oldest ones (by expiry)."""
+        everything = [
+            (e.expires_at, ns, e)
+            for ns, entries in self._items.items()
+            for e in entries
+            if e.expires_at > now
+        ]
+        everything.sort(key=lambda t: t[0])
+        keep = everything[len(everything) - self._max_entries :] if everything else []
+        self._items = {}
+        for _, ns, e in keep:
+            self._items.setdefault(ns, []).append(e)
 
     async def start(self) -> None:
         return None

@@ -9,6 +9,11 @@ within one poll interval.
 validation, nothing changes: the replica keeps serving what it served, and a counter says so.
 It retries at the next poll. It never falls back to the YAML policy mid-flight, because that
 would silently change policy in the middle of an outage.
+
+**One refresh at a time.** The admin API refreshes right after a change, while the background
+loop may be refreshing too. Interleaved, an older pointer read could be applied after a newer
+one, and a rollback would appear and then revert until the next poll (found in review). A
+lock serializes them.
 """
 
 import asyncio
@@ -39,6 +44,7 @@ class PolicyPoller:
         self._poll_s = poll_s
         self._applied: Pointer | None = None  # the pointer the current snapshot came from
         self._task: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
         # The first poll has finished (applied, or failed and kept the YAML policy). /readyz
         # answers 503 until then, so a replica that starts during a canary doesn't take traffic
         # before it knows the canary exists; startup itself never waits on the database.
@@ -50,6 +56,10 @@ class PolicyPoller:
 
     async def refresh(self) -> bool:
         """Apply the current pointer if it changed. True when this replica is up to date."""
+        async with self._lock:
+            return await self._refresh()
+
+    async def _refresh(self) -> bool:
         try:
             pointer = await self._store.pointer()
             if pointer == self._applied:

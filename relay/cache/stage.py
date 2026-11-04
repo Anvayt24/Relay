@@ -202,6 +202,11 @@ class CacheStage:
             similarity=similarity,
         )
         REQUESTS.labels(layer=layer, result="hit").inc()
+        if ctx.applied.version is None:
+            # No bundle: the policy of record is the one that produced the answer (a trained
+            # router's version, say). The route stage, which sets it otherwise, never runs on a
+            # hit, so the log row said the static policy (found in review).
+            ctx.policy_version = reply.policy_version
         ctx.usage = reply.usage()
         completion_id = f"chatcmpl-cache-{key[:16]}"
         if not ctx.stream:

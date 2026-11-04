@@ -13,7 +13,13 @@ from prometheus_client import REGISTRY
 from relay.api.app import create_app
 from relay.providers.mock import MockProvider
 from relay.telemetry import tracing
-from relay.telemetry.logs import REQUEST_ID, JsonFormatter, RequestContextFilter, configure_logging
+from relay.telemetry.logs import (
+    REQUEST_ID,
+    JsonFormatter,
+    RequestContextFilter,
+    configure_logging,
+    writer_formatter,
+)
 
 from ..conftest import test_settings as relay_settings  # type: ignore[import-not-found]
 
@@ -247,8 +253,53 @@ def test_configure_logging_is_idempotent() -> None:
     configure_logging(relay_settings(log_format="json"))
     root = logging.getLogger()
     assert sum(1 for h in root.handlers if h.get_name() == "relay") == 1
-    assert isinstance(
-        next(h for h in root.handlers if h.get_name() == "relay").formatter, JsonFormatter
-    )
+    assert isinstance(writer_formatter(), JsonFormatter)
     configure_logging(relay_settings())  # back to text for the rest of the suite
     assert tracing.enabled() is False
+
+
+def test_log_lines_are_written_by_a_thread_not_the_caller() -> None:
+    # Found in review: the handler wrote to stderr on the event loop, so every log line was
+    # synchronous I/O on the request path. Now the caller only enqueues.
+    import threading
+
+    from relay.telemetry import logs
+
+    configure_logging(relay_settings(log_format="json"))
+    written_by: list[str] = []
+    assert logs._listener is not None
+    writer = logs._listener.handlers[0]
+    original = writer.emit
+
+    def spy(record: logging.LogRecord) -> None:
+        written_by.append(threading.current_thread().name)
+        original(record)
+
+    writer.emit = spy  # type: ignore[method-assign]
+    try:
+        token = REQUEST_ID.set("req-q")
+        try:
+            logging.getLogger("relay.test").warning("from the loop")
+        finally:
+            REQUEST_ID.reset(token)
+        logs._listener.stop()  # flushes the queue
+        logs._listener = None
+    finally:
+        configure_logging(relay_settings())
+    assert written_by and threading.main_thread().name not in written_by
+
+
+def test_an_exception_survives_the_queue() -> None:
+    from relay.telemetry.logs import _QueueHandler
+
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        import sys
+
+        rec = logging.LogRecord(
+            "x", logging.ERROR, __file__, 1, "failed %s", ("now",), sys.exc_info()
+        )
+    prepared = _QueueHandler(None).prepare(rec)  # type: ignore[arg-type]
+    line = json.loads(JsonFormatter().format(prepared))
+    assert line["msg"] == "failed now" and "ValueError: boom" in line["exc_info"]

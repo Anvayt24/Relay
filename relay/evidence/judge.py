@@ -14,12 +14,12 @@ The label is always from the **candidate's** point of view:
 """
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from relay.evidence.rubric import JUDGE_PROMPT_VERSION, Verdict, build_messages, parse_verdict
 from relay.providers.base import ProviderAdapter
-from relay.schemas.chat import ChatRequest
+from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ProviderError
 
 Label = Literal["win", "tie", "loss"]
@@ -32,6 +32,9 @@ class JudgeResult:
     judge_model: str
     prompt_version: str
     raw: str = ""
+    # What the judge call(s) used, as reported by the provider; None when nothing was reported
+    # (or the call failed). The shadow budget is settled against it.
+    usage: Usage | None = None
 
 
 class Judge(Protocol):
@@ -72,11 +75,12 @@ class LLMJudge:
         # Both orders (PRD §10.3): a verdict that flips with the order was position bias,
         # so a disagreement is a tie. Costs a second call per pair.
         second = await self._once(request, candidate, reference, not swapped)
+        usage = _sum_usage(first.usage, second.usage)
         if second.label is None:
-            return second
+            return replace(second, usage=usage)
         if first.label != second.label:
-            return JudgeResult("tie", swapped, self._name, JUDGE_PROMPT_VERSION, first.raw)
-        return first
+            return JudgeResult("tie", swapped, self._name, JUDGE_PROMPT_VERSION, first.raw, usage)
+        return replace(first, usage=usage)
 
     async def _once(
         self, request: str, candidate: str, reference: str, swapped: bool
@@ -100,4 +104,14 @@ class LLMJudge:
         text = response.choices[0].message.content or ""
         verdict = parse_verdict(text)
         label = None if verdict is None else label_from_verdict(verdict, candidate_is_a=not swapped)
-        return JudgeResult(label, swapped, self._name, JUDGE_PROMPT_VERSION, text)
+        return JudgeResult(label, swapped, self._name, JUDGE_PROMPT_VERSION, text, response.usage)
+
+
+def _sum_usage(a: Usage | None, b: Usage | None) -> Usage | None:
+    if a is None or b is None:
+        return a or b
+    return Usage(
+        prompt_tokens=a.prompt_tokens + b.prompt_tokens,
+        completion_tokens=a.completion_tokens + b.completion_tokens,
+        total_tokens=a.total_tokens + b.total_tokens,
+    )
