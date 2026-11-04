@@ -25,7 +25,7 @@ from relay.providers.mock import MockProvider
 from relay.schemas.chat import ChatRequest
 from relay.telemetry.log_writer import MemorySink
 
-from ..conftest import TEST_CONFIG_PATH  # type: ignore[import-not-found]
+from ..conftest import TEST_CONFIG_PATH, yaml_policy  # type: ignore[import-not-found]
 from ..conftest import test_settings as relay_settings  # type: ignore[import-not-found]
 
 CHAT = "/v1/chat/completions"
@@ -276,6 +276,7 @@ def _ctx(cfg: RelayConfig, **kw: Any) -> RequestContext:
         policy_version="p",
         deadline=1e12,
         stream=False,
+        applied=yaml_policy(cfg),
     )
     for k, v in kw.items():
         setattr(ctx, k, v)
@@ -343,7 +344,6 @@ async def test_overflowing_pending_tasks_are_dropped_not_queued() -> None:
     cfg = evidence_config()
     store = MemoryEvidenceStore()
     stage = ShadowStage(
-        cfg,
         dict(cfg.models),
         judges=lambda name, max_tokens: ScriptedJudge(),
         store=store,
@@ -365,7 +365,6 @@ async def test_without_a_dispatcher_or_judge_nothing_is_called() -> None:
     cfg = evidence_config()
     store = MemoryEvidenceStore()
     stage = ShadowStage(
-        cfg,
         dict(cfg.models),
         judges=lambda name, max_tokens: None,
         store=store,

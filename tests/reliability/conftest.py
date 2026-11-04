@@ -14,6 +14,8 @@ from relay.schemas.chat import ChatChunk, ChatRequest, ChatResponse
 from relay.simulator.engine import Simulator
 from relay.simulator.plan import MockBehavior
 
+from ..conftest import yaml_policy  # type: ignore[import-not-found]
+
 FALLBACK_CONFIG: RelayConfig = load_config(
     str(Path(__file__).parents[1] / "config" / "fallback.yaml")
 )
@@ -87,6 +89,7 @@ def make_ctx(
         policy_version="test",
         deadline=clock() + deadline_s,
         stream=stream,
+        applied=yaml_policy(config),
     )
     spec = config.models[model]
     ctx.decision = RouteDecision(

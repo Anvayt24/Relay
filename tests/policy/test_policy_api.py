@@ -138,6 +138,37 @@ async def test_a_shadow_bundle_never_changes_a_response() -> None:
     assert all(row.shadow_policy_version is None for row in plain_sink.rows)
 
 
+async def test_shadow_decisions_are_not_counted_as_live_router_decisions() -> None:
+    # Found in review: the shadow router incremented the live decision counters, so every
+    # relay/auto request counted twice while a shadow ran (and the cheap-share panel mixed in
+    # decisions that were never applied).
+    from prometheus_client import REGISTRY
+
+    def decisions() -> float:
+        return sum(
+            s.value
+            for m in REGISTRY.collect()
+            if m.name == "relay_router_decisions"
+            for s in m.samples
+            if s.name == "relay_router_decisions_total"
+        )
+
+    def shadowed() -> float:
+        return (
+            REGISTRY.get_sample_value("relay_policy_shadow_decisions_total", {"result": "ok"})
+            or 0.0
+        )
+
+    app, _ = build(await prepared(activate_v1, lambda p: control.shadow(p, V2)))
+    before, before_shadow = decisions(), shadowed()
+    async with serving(app) as c:
+        await app.state.policy_poller.refresh()
+        for p in ("hi", "x" * 400):
+            assert (await c.post(CHAT, json=body(p))).status_code == 200
+    assert decisions() - before == 2  # the two live decisions, once each
+    assert shadowed() - before_shadow == 2
+
+
 async def test_a_failing_shadow_router_is_swallowed() -> None:
     app, _ = build(await prepared(activate_v1, lambda p: control.shadow(p, V2)))
     async with serving(app) as c:

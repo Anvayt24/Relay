@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 DIMENSIONS = 384
+# How many embeddings run at once (the executor's threads), and how many may be queued or
+# running in total before a new one is refused at once.
+THREADS = 2
+MAX_IN_FLIGHT = 16
+
+
+class EmbedderBusy(RuntimeError):
+    """Too many embeddings already queued: refused at once instead of joining the backlog."""
 
 
 class Embedder(Protocol):
@@ -72,18 +80,18 @@ class FastEmbedder:
     name = MODEL_NAME
     dimensions = DIMENSIONS
 
-    def __init__(
-        self, model_name: str = MODEL_NAME, *, threads: int = 2, onnx_threads: int = 1
-    ) -> None:
-        # `threads`: how many embeddings may run at once (the executor). `onnx_threads`: how many
-        # threads ONNX Runtime uses *inside* one embedding. It defaults to ALL visible cores,
-        # and in a container limited to 2 CPUs on a 12-core host that means 12 threads fighting
-        # over 2: measured 121 ms of CPU per short prompt, against 12 ms with one thread. Keep
-        # it at 1 and scale with `threads` / more worker processes instead.
-        self._model_name = model_name
+    def __init__(self, *, onnx_threads: int = 1) -> None:
+        # `onnx_threads`: how many threads ONNX Runtime uses *inside* one embedding. It defaults
+        # to ALL visible cores, and in a container limited to 2 CPUs on a 12-core host that
+        # means 12 threads fighting over 2: measured 121 ms of CPU per short prompt, against
+        # 12 ms with one thread. Keep it at 1 and scale with THREADS or more worker processes.
         self._onnx_threads = onnx_threads
         self._model: Any = None  # loaded in start(); a failure there disables the cache
-        self._pool = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="embed")
+        self._pool = ThreadPoolExecutor(max_workers=THREADS, thread_name_prefix="embed")
+        # Jobs submitted and not yet finished. A caller's timeout cancels its await, not the
+        # thread already running the job, so without a cap a slow spell builds a backlog in
+        # which every later embedding times out too (found in review).
+        self._in_flight = 0
 
     @property
     def ready(self) -> bool:
@@ -109,7 +117,7 @@ class FastEmbedder:
         async def load() -> None:
             try:
                 await self.start()
-                logger.info("embedding model %s loaded", self._model_name)
+                logger.info("embedding model %s loaded", MODEL_NAME)
             except Exception:
                 logger.exception("embedding model failed to load: semantic cache disabled")
 
@@ -118,7 +126,7 @@ class FastEmbedder:
     def _load(self) -> Any:
         from fastembed import TextEmbedding
 
-        return TextEmbedding(model_name=self._model_name, threads=self._onnx_threads)
+        return TextEmbedding(model_name=MODEL_NAME, threads=self._onnx_threads)
 
     def _embed_sync(self, text: str) -> list[float]:
         assert self._model is not None
@@ -128,8 +136,18 @@ class FastEmbedder:
     async def embed(self, text: str) -> list[float]:
         if self._model is None:
             raise RuntimeError("FastEmbedder.start() was not called")
+        if self._in_flight >= MAX_IN_FLIGHT:
+            raise EmbedderBusy(f"{self._in_flight} embeddings already in flight")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._pool, self._embed_sync, text)
+        self._in_flight += 1
+        job = self._pool.submit(self._embed_sync, text)
+        # Released when the *job* ends (back on the loop's thread), not when the caller stops
+        # waiting: that is what makes the cap count real work.
+        job.add_done_callback(lambda _: loop.call_soon_threadsafe(self._job_done))
+        return await asyncio.wrap_future(job)
+
+    def _job_done(self) -> None:
+        self._in_flight -= 1
 
     async def embed_many(self, texts: list[str]) -> list[list[float]]:
         """Batch embedding, for building the frozen evaluation data."""

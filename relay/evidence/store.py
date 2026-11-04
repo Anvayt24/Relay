@@ -164,6 +164,19 @@ LEFT JOIN LATERAL (
 ORDER BY p.ts
 """
 
+# Shadow pairs a human can label: this route's, with their text kept (`full`-logging
+# tenants only), and not labeled yet. A uniform random sample, because the rectifier assumes
+# the labeled pairs are a random subset of the judged ones (oldest-first would label only the
+# oldest policy's traffic).
+_LABELABLE_PAIRS = f"""
+SELECT {", ".join(_PAIR_COLUMNS)} FROM eval_pairs p
+WHERE p.route = $1 AND p.text_retained AND p.prompt_text IS NOT NULL
+  AND p.candidate_text IS NOT NULL AND p.reference_text IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM human_labels h WHERE h.pair_id = p.pair_id AND NOT h.is_relabel)
+ORDER BY random()
+LIMIT $2
+"""
+
 _UPSERT_CARD = """
 INSERT INTO route_cards (route, comparison, cohort, state, estimate, ci_low, ci_high, floor,
                          n_judge, n_human, look, recommended_action, policy_version, card,
@@ -207,6 +220,13 @@ class PostgresEvidenceStore:
         async with self._need_pool().acquire() as conn:
             rows = await conn.fetch(_LOAD_PAIRS)
         return [JudgedPair(**dict(r)) for r in rows]
+
+    async def labelable_pairs(self, route: str, limit: int) -> list[ShadowPair]:
+        """A random sample of this route's unlabeled shadow pairs that still have their text,
+        for ``python -m relay.evidence.label export``."""
+        async with self._need_pool().acquire() as conn:
+            rows = await conn.fetch(_LABELABLE_PAIRS, route, limit)
+        return [ShadowPair(**dict(r)) for r in rows]
 
     async def import_labels(self, labels: Sequence[HumanLabel]) -> int:
         # Labels for pairs that aren't in the database are skipped (the foreign key would

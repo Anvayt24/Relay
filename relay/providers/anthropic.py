@@ -181,6 +181,12 @@ class AnthropicAdapter:
                     # ping, content_block_start/stop: nothing to forward.
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=content_seen) from exc
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+            # Valid JSON of the wrong shape: an upstream fault like any other (see openai_compat).
+            raise ProviderError(
+                ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR,
+                f"malformed event: {exc!r}",
+            ) from exc
 
         if not stopped:
             raise ProviderError(

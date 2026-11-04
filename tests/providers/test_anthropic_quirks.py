@@ -136,6 +136,15 @@ async def test_stream_without_message_stop_is_broken() -> None:
     assert exc.value.error_class is ErrorClass.STREAM_BROKEN
 
 
+async def test_wrong_shaped_event_after_content_is_stream_broken() -> None:
+    bad_usage = ("message_delta", {"type": "message_delta", "usage": {"output_tokens": "many"}})
+    adapter = _adapter(_events(START, DELTA, bad_usage))
+    with pytest.raises(ProviderError) as exc:
+        _ = [c async for c in adapter.stream(_request())]
+    await adapter.aclose()
+    assert exc.value.error_class is ErrorClass.STREAM_BROKEN
+
+
 async def test_error_event_before_content_is_classified() -> None:
     error = (
         "error",

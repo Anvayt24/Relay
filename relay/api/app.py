@@ -155,7 +155,7 @@ def create_app(
     # One embedder, shared by the semantic cache and the router (the router reuses the
     # cache's embedding when it has one). Built when either needs it.
     embedder = embedder or _embedder(settings, config)
-    cache_stage = CacheStage(config, exact=exact_cache, semantic=semantic_cache, embedder=embedder)
+    cache_stage = CacheStage(exact=exact_cache, semantic=semantic_cache, embedder=embedder)
 
     # The evidence engine (Phase 12), only when some route has an `evidence:` section. Cards
     # come from the worker through the store; the board makes gated edges follow them, falling
@@ -174,7 +174,6 @@ def create_app(
         board = CardBoard(evidence_store, seeded=seeded, poll_s=settings.card_poll_s)
         if any(t.evidence_sampling == "on" for t in config.tenants.values()):
             shadow = ShadowStage(
-                config,
                 models,
                 judges=judges or _judge_factory(providers, models),
                 store=evidence_store,
@@ -201,21 +200,20 @@ def create_app(
         shadow.bind(dispatcher.run)
 
     # Policy bundles (Phase 13). The YAML policy serves until a bundle is activated; with a
-    # database, every replica follows the pointer there (ADRs 0023, 0024).
-    bootstrap_router = router or _router(settings, config, models, embedder)
-
-    def router_factory(cfg: RelayConfig, arts: Mapping[str, object]) -> Router:
+    # database, every replica follows the pointer there (ADRs 0023, 0024). One factory builds
+    # the router for the YAML policy (artifacts from disk) and for every bundle (embedded).
+    def router_factory(cfg: RelayConfig, arts: Mapping[str, RouterArtifact | None]) -> Router:
         if not any(r.router is not None for r in cfg.routes.values()):
             return StaticRouter(cfg, models)
-        return TrainedRouter(
-            cfg,
-            models,
-            artifacts={k: v for k, v in arts.items() if isinstance(v, RouterArtifact)},
-            embedder=embedder,
-        )
+        return TrainedRouter(cfg, models, artifacts=arts, embedder=embedder)
 
+    bootstrap_router = router or router_factory(config, _load_artifacts(settings, config))
     runtime = PolicyRuntime(
-        config, models, bootstrap=bootstrap_router, router_factory=router_factory
+        config,
+        bootstrap=bootstrap_router,
+        router_factory=router_factory,
+        can_route=embedder is not None or settings.embedder == "off",
+        has_evidence=evidence_on,
     )
     if policy_store is None and settings.database_url:
         policy_store = PostgresPolicyStore(settings.database_url)
@@ -231,7 +229,7 @@ def create_app(
             *([shadow] if shadow is not None else []),
             AdmissionStage(store, queue, replica_count=settings.replica_count),
             cache_stage,  # a hit short-circuits: no routing, reservation or provider call
-            RouteStage(bootstrap_router, config),
+            RouteStage(),
             # After routing (the price needs the model), and sized for every model the
             # dispatcher might fall back to.
             ReservationStage(
@@ -394,22 +392,14 @@ def _config_dir(settings: Settings) -> Path:
     return Path(settings.config_path).parent if settings.config_path else DEFAULT_CONFIG.parent
 
 
-def _router(
-    settings: Settings,
-    config: RelayConfig,
-    models: Mapping[str, ModelSpec],
-    embedder: Embedder | None,
-) -> Router:
-    """The static router, or the trained one when any route configures a ``router:``.
+def _load_artifacts(settings: Settings, config: RelayConfig) -> dict[str, RouterArtifact | None]:
+    """Each routed route's artifact, read from disk (paths relative to the config file).
 
     A missing or invalid artifact is logged loudly and recorded as None: that route's
     relay/auto then routes to strong (PRD: "router artifact missing/corrupt -> strong") and the
     gateway still starts."""
-    routed = {name: r.router for name, r in config.routes.items() if r.router is not None}
-    if not routed:
-        return StaticRouter(config, models)
     artifacts: dict[str, RouterArtifact | None] = {}
-    for name, spec in routed.items():
+    for name, spec in ((n, r.router) for n, r in config.routes.items() if r.router is not None):
         path = _config_dir(settings) / spec.artifact
         try:
             loaded = load_artifact(path)
@@ -420,7 +410,7 @@ def _router(
             logger.error(
                 "route %r: router artifact unusable (%s); relay/auto will route to strong", name, e
             )
-    return TrainedRouter(config, models, artifacts=artifacts, embedder=embedder)
+    return artifacts
 
 
 async def _drain(app: FastAPI, timeout_s: float) -> None:

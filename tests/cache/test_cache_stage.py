@@ -3,7 +3,9 @@
 Every test counts ``provider.calls``: a cache hit is defined by the call it does *not* make.
 """
 
+import asyncio
 import json
+import time
 from typing import Any
 
 import httpx
@@ -23,7 +25,7 @@ from relay.providers.mock import MockProvider
 from relay.simulator.plan import MockBehavior
 from relay.telemetry.log_writer import MemorySink
 
-from ..conftest import TEST_CONFIG  # type: ignore[import-not-found]
+from ..conftest import TEST_CONFIG, yaml_policy  # type: ignore[import-not-found]
 from ..conftest import test_settings as relay_settings  # type: ignore[import-not-found]
 
 CHAT = "/v1/chat/completions"
@@ -44,6 +46,7 @@ def build(
     semantic: bool = False,
     threshold: float = 0.8,
     guard: bool = True,
+    embed_timeout_s: float = 0.5,
     sink: MemorySink | None = None,
     **backends: Any,
 ) -> tuple[FastAPI, MockProvider]:
@@ -52,7 +55,11 @@ def build(
         update={"cache": TenantCache(enabled=True, semantic=semantic, ttl_s=600)}
     )
     route = TEST_CONFIG.routes["default"].model_copy(
-        update={"cache": RouteCache(semantic_threshold=threshold, lexical_guard=guard)}
+        update={
+            "cache": RouteCache(
+                semantic_threshold=threshold, lexical_guard=guard, embed_timeout_s=embed_timeout_s
+            )
+        }
     )
     config = TEST_CONFIG.model_copy(
         update={
@@ -304,6 +311,25 @@ async def test_a_failing_embedder_falls_back_to_the_exact_layer() -> None:
     assert provider.calls == 1
 
 
+async def test_a_slow_embedder_is_a_miss_not_a_slow_request() -> None:
+    # Found in review: the cache waited for the embedding without any bound, so a slow
+    # embedder delayed every cacheable request (the router's own timeout never applied).
+    class Slow(HashEmbedder):
+        async def embed(self, text: str) -> list[float]:
+            await asyncio.sleep(30)
+            raise AssertionError("unreachable")
+
+    app, provider = build(
+        semantic=True, embed_timeout_s=0.05, embedder=Slow(), semantic_cache=MemorySemanticStore()
+    )
+    started = time.monotonic()
+    async with client(app) as c:
+        r = await c.post(CHAT, json=body())
+    assert r.status_code == 200 and r.headers["x-relay-cache"] == "miss"
+    assert time.monotonic() - started < 5
+    assert provider.calls == 1
+
+
 # ---------------------------------------------------------------- remaining plan items
 async def test_the_embedding_is_computed_once_and_kept_for_the_router() -> None:
     calls = 0
@@ -337,7 +363,7 @@ async def test_degraded_answers_are_never_cached() -> None:
     from relay.schemas.chat import ChatRequest, Usage
 
     store = MemoryExactStore()
-    stage = CacheStage(TEST_CONFIG, exact=store)
+    stage = CacheStage(exact=store)
     request = ChatRequest.model_validate(
         {"model": "relay/auto", "temperature": 0, "messages": [{"role": "user", "content": "q"}]}
     )
@@ -355,6 +381,7 @@ async def test_degraded_answers_are_never_cached() -> None:
             policy_version="t",
             deadline=time.monotonic() + 60,
             stream=False,
+            applied=yaml_policy(TEST_CONFIG),
         )
         c.attempts.append(ProviderAttempt("mock", "mock/strong", 0.01, None))
         c.usage = Usage(prompt_tokens=1, completion_tokens=1, total_tokens=2)

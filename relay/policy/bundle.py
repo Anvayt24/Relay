@@ -23,7 +23,7 @@ import json
 import re
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,7 +46,7 @@ class BundleRouter(BaseModel):
     artifact_json: str  # the artifact file's exact text: every replica gets identical bytes
     artifact_sha256: str  # RouterArtifact.sha256(): checked on every load
     threshold: float = Field(ge=0, le=1)
-    alias: str = "relay/auto"
+    alias: Literal["relay/auto"] = "relay/auto"  # fixed, as in RouterSpec
     embed_timeout_s: float = Field(default=0.5, gt=0)
 
 

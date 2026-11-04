@@ -149,6 +149,26 @@ async def test_malformed_chunk_before_and_after_content() -> None:
     assert after.value.error_class is ErrorClass.STREAM_BROKEN
 
 
+async def test_wrong_shaped_chunks_are_provider_errors() -> None:
+    # Valid JSON of the wrong shape must fail over like any upstream fault, not escape as a 500.
+    bad_choice = "data: " + json.dumps({"id": "c1", "choices": ["not-an-object"]})
+    bad_created = "data: " + json.dumps({"id": "c1", "created": "soon", "choices": []})
+    with pytest.raises(ProviderError) as before:
+        await _collect(_adapter(_sse(bad_choice)))
+    with pytest.raises(ProviderError) as after:
+        await _collect(_adapter(_sse(_chunk("a"), bad_created)))
+    assert before.value.error_class is ErrorClass.SERVER_ERROR
+    assert after.value.error_class is ErrorClass.STREAM_BROKEN
+
+
+async def test_wrong_shaped_success_body_is_server_error() -> None:
+    adapter = _adapter(_status(200, json.dumps({"choices": ["x"]}).encode()))
+    with pytest.raises(ProviderError) as exc:
+        await adapter.complete(_request())
+    await adapter.aclose()
+    assert exc.value.error_class is ErrorClass.SERVER_ERROR
+
+
 async def test_in_band_error_event_before_content_is_classified() -> None:
     # OpenRouter reports failures inside a 200 stream. A daily free-tier cap is quota, not a
     # short rate limit: Relay must not hammer it again in a second.

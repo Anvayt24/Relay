@@ -14,7 +14,7 @@ from relay.reliability.candidates import plan_candidates
 from relay.reliability.edges import SeededEdgeStates
 from relay.routing.router import TrainedRouter
 
-from ..conftest import TEST_CONFIG  # type: ignore[import-not-found]
+from ..conftest import TEST_CONFIG, yaml_policy  # type: ignore[import-not-found]
 from .conftest import StubEmbedder, chat, length_artifact, routed_config
 
 CHEAP, STRONG = "mock/cheap", "mock/strong"
@@ -33,6 +33,7 @@ def make_ctx(req: Any, config: Any) -> RequestContext:
         policy_version="static-v0",
         deadline=time.monotonic() + 60,
         stream=False,
+        applied=yaml_policy(config),
     )
 
 
@@ -182,6 +183,18 @@ async def test_an_embedding_the_cache_already_computed_is_reused() -> None:
     ctx.embedding = await StubEmbedder().embed("hi")  # what CacheStage would have stored
     d = await router(config, embedder=stub).decide(ctx.request, ctx)
     assert stub.calls == 0 and d.reason == "router"
+
+
+async def test_an_embedding_the_cache_failed_to_get_is_not_waited_for_again() -> None:
+    # The cache stage already spent its timeout on this prompt: routing to strong now beats
+    # making the request wait a second time for the same embedder.
+    stub = StubEmbedder()
+    config = routed_config()
+    ctx = make_ctx(chat(EASY), config)
+    ctx.embed_failure = "embed_timeout"
+    d = await router(config, embedder=stub).decide(ctx.request, ctx)
+    assert stub.calls == 0
+    assert (d.model, d.reason) == (STRONG, "router_fallback:embed_timeout")
 
 
 async def test_multi_turn_requests_route_on_the_last_user_message() -> None:

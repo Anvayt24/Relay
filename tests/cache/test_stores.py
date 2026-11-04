@@ -160,3 +160,29 @@ async def test_pgvector_expired_entries_are_not_returned(pg_store: PgVectorStore
     v = await vec("hello world")
     await pg_store.insert("ns", v, reply(), guard="g", ttl_s=0)  # already expired
     assert await pg_store.lookup("ns", v, threshold=0.5, max_tokens=100, guard="g") is None
+
+
+@pytest.mark.integration
+async def test_pgvector_sweep_deletes_only_expired_entries(pg_store: PgVectorStore) -> None:
+    # Found in review: expired rows were filtered out of lookups but never deleted.
+    v = await vec("hello world")
+    await pg_store.insert("ns", v, reply(), guard="g", ttl_s=0)  # already expired
+    await pg_store.insert("ns", v, reply(), guard="g", ttl_s=600)
+    assert await pg_store.sweep() == 1
+    assert await pg_store.sweep() == 0
+    assert await pg_store.lookup("ns", v, threshold=0.5, max_tokens=100, guard="g") is not None
+
+
+@pytest.mark.integration
+async def test_pgvector_finds_its_namespace_behind_many_closer_neighbours(
+    pg_store: PgVectorStore,
+) -> None:
+    # Found in review: HNSW filters its ef_search (40) nearest candidates *after* the search,
+    # so other namespaces' closer vectors could crowd out the only match. Iterative scans fix it.
+    v = await vec("hello world")
+    for i in range(120):
+        await pg_store.insert(f"other-{i}", v, reply(), guard="g", ttl_s=600)
+    far = await vec("hello world and a rather different tail")
+    await pg_store.insert("mine", far, reply(), guard="g", ttl_s=600)
+    hit = await pg_store.lookup("mine", v, threshold=0.0, max_tokens=100, guard="g")
+    assert hit is not None

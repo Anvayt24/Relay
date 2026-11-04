@@ -80,7 +80,6 @@ class CardSpec:
     min_cohort_n: int = 200
     rectifier_max_age: timedelta = timedelta(days=30)
     interval: Interval = "wald"
-    n_boot: int = 2000
 
 
 @dataclass(frozen=True)
@@ -200,8 +199,13 @@ def _comparison_cards(
 
     labeled = [p for p in judged if p.human_label is not None]
     unlabeled = [p for p in judged if p.human_label is None]
-    look = spec.looks.look_for(len(unlabeled))
-    decision_data = unlabeled[: spec.looks.sample_size(look)]
+    # Looks count every judged pair, labeled or not, in time order, so a look's window of pairs
+    # is fixed once reached. Counting only unlabeled pairs (found in review) let a human label
+    # move the look backwards and swap a later pair into an earlier look's data. Within the
+    # window, the labeled pairs are the rectifier and the rest the judge-only sample.
+    look = spec.looks.look_for(len(judged))
+    window = judged[: spec.looks.sample_size(look)]
+    decision_data = [p for p in window if p.human_label is None]
     policy = Counter(p.policy_version for p in decision_data or unlabeled).most_common(1)
     base = {
         "route": route,
@@ -235,7 +239,7 @@ def _comparison_cards(
 
     if look == 0:
         # No look reached yet: report progress, decide nothing.
-        return [_progress_card(base, unlabeled, spec)]
+        return [_progress_card(base, judged, spec)]
 
     y = np.array([p.human_ok for p in labeled], dtype=bool)
     f = np.array([p.judge_ok for p in labeled], dtype=bool)
@@ -312,9 +316,7 @@ def _estimate(
         "n": len(f_unlabeled),
     }
     if spec.interval == "bootstrap":
-        lo, hi, reps = stats.ppi_bootstrap_ci(
-            f_unlabeled, y, f, alpha=2 * alpha, n_boot=spec.n_boot, seed=0
-        )
+        lo, hi, reps = stats.ppi_bootstrap_ci(f_unlabeled, y, f, alpha=2 * alpha, seed=0)
         out["ci"] = (lo, hi)
         out["p_safe"] = (1 + int(np.sum(reps <= spec.floor))) / (len(reps) + 1)
         out["p_unsafe"] = (1 + int(np.sum(reps >= spec.floor))) / (len(reps) + 1)
@@ -379,10 +381,8 @@ def _judge_only_card(
     )
 
 
-def _progress_card(
-    base: dict[str, Any], unlabeled: Sequence[JudgedPair], spec: CardSpec
-) -> RouteCard:
-    need = spec.looks.every - len(unlabeled)
+def _progress_card(base: dict[str, Any], judged: Sequence[JudgedPair], spec: CardSpec) -> RouteCard:
+    need = spec.looks.every - len(judged)
     return RouteCard(
         **base,
         cohort=ALL,

@@ -1,11 +1,18 @@
 """The human labeling tool: a small local web page for judging pairs, blind.
 
+    python -m relay.evidence.label export --route default --out pairs.jsonl  # from Postgres
     python -m relay.evidence.label --pairs pairs.jsonl --labels labels.jsonl
     python -m relay.evidence.label import --labels labels.jsonl     # into Postgres (Phase 12)
 
 Opens on http://127.0.0.1:8200. Bound to localhost only: it serves prompts and model answers.
 ``import`` loads finished labels into ``human_labels``, where the evidence worker uses them as
-the rectifier's gold set; pairs must already be in ``eval_pairs`` (``pairs import``).
+the rectifier's gold set; pairs must already be in ``eval_pairs``.
+
+Where the pairs come from:
+- **Production shadow pairs:** ``export`` writes a random sample of a route's unlabeled shadow
+  pairs. Only pairs from ``full``-logging tenants keep their text, so only those can be
+  labeled; a route with none can't leave ``uncalibrated``.
+- **Pilot or public sets:** ``python -m relay.evidence.pairs build`` and ``pairs import``.
 
 What makes the labels usable as ground truth for calibrating the judge (PRD §10.3):
 - **Blind.** The page never shows model names, and which response is on the left is random
@@ -39,8 +46,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from relay.evidence.pairs import EvalPair, read_jsonl
-from relay.evidence.store import HumanLabel, PostgresEvidenceStore
+from relay.evidence.pairs import EvalPair, read_jsonl, write_jsonl
+from relay.evidence.store import HumanLabel, PostgresEvidenceStore, ShadowPair
 from relay.settings import Settings
 
 RELABEL_FRACTION = 0.10
@@ -233,6 +240,39 @@ def human_labels(rows: list[dict[str, Any]]) -> list[HumanLabel]:
     ]
 
 
+def eval_pair(p: ShadowPair) -> EvalPair:
+    """A shadow pair in the labeling tool's format. Its id is the shadow pair's, so the labels
+    made on it import straight back onto that pair."""
+    if p.prompt_text is None or p.candidate_text is None or p.reference_text is None:
+        raise ValueError(f"pair {p.pair_id} kept no text and can't be labeled")
+    return EvalPair(
+        id=p.pair_id,
+        prompt_hash=p.prompt_hash,
+        prompt=p.prompt_text,
+        cohort=p.cohort,
+        candidate_model=p.candidate_model,
+        reference_model=p.reference_model,
+        candidate_response=p.candidate_text,
+        reference_response=p.reference_text,
+        judge_label=p.judge_label,
+        judge_model=p.judge_model,
+        judge_prompt_version=p.judge_prompt_version,
+        position_swapped=p.position_swapped,
+        text_retained=p.text_retained,
+        ts=p.ts.isoformat(),
+        source=p.source,
+    )
+
+
+async def _export(route: str, limit: int, dsn: str) -> list[EvalPair]:
+    store = PostgresEvidenceStore(dsn)
+    await store.start()
+    try:
+        return [eval_pair(p) for p in await store.labelable_pairs(route, limit)]
+    finally:
+        await store.close()
+
+
 async def _import(labels: list[HumanLabel], dsn: str) -> int:
     store = PostgresEvidenceStore(dsn)
     await store.start()
@@ -244,6 +284,21 @@ async def _import(labels: list[HumanLabel], dsn: str) -> int:
 
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["export"]:
+        exp = argparse.ArgumentParser(prog="python -m relay.evidence.label export")
+        exp.add_argument("--route", required=True)
+        exp.add_argument("--out", required=True)
+        exp.add_argument("--limit", type=int, default=300)
+        a = exp.parse_args(argv[1:])
+        dsn = Settings().database_url
+        if not dsn:
+            raise SystemExit("RELAY_DATABASE_URL is not set")
+        pairs = asyncio.run(_export(a.route, a.limit, dsn))
+        write_jsonl(pairs, Path(a.out))
+        print(f"exported {len(pairs)} unlabeled pairs of route {a.route!r} to {a.out}")
+        if not pairs:
+            print("none have text: only `full`-logging tenants' shadow pairs can be labeled")
+        return
     if argv[:1] == ["import"]:
         imp = argparse.ArgumentParser(prog="python -m relay.evidence.label import")
         imp.add_argument("--labels", required=True)

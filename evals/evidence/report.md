@@ -110,7 +110,7 @@ Traffic mix: 37% cheap (the simulated router's share); judge mock/cheap. M8 **me
 
 | canary | true w | rolled back | promoted (recommended) | still undecided | median judged pairs to the decision |
 |---|---|---|---|---|---|
-| bad | 0.84 | 66.0% | 0.0% | 34.0% | 250.0 |
+| bad | 0.84 | 68.0% | 0.0% | 32.0% | 250.0 |
 | good | 0.97 | 0.0% | 99.0% | 1.0% | 250.0 |
 
 A good canary is only ever *recommended* for promotion; a human runs `promote` (ADR 0022).

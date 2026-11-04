@@ -5,7 +5,8 @@ given enough peeks, a random walk crosses any fixed line, so a merely-adequate r
 eventually be declared "safe" by chance. E1's answer (without E2's confidence sequences) is
 to decide only at a few looks fixed in advance:
 
-- a look happens each time the judged-sample count reaches ``every``, ``2*every``, ...;
+- a look happens each time the judged-pair count (labeled or not) reaches ``every``,
+  ``2*every``, ...;
 - there are at most ``max_looks`` of them;
 - each look tests at ``alpha / max_looks`` (Bonferroni), so the chance that *any* look errs
   is at most ``alpha``.

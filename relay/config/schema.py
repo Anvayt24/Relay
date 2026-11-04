@@ -51,6 +51,10 @@ class RouteCache(BaseModel):
     semantic_threshold: float = Field(default=0.95, ge=0, le=1)
     # Force a miss when the numbers/names in two prompts differ ("15% of 200" vs "300").
     lexical_guard: bool = True
+    # How long the semantic layer waits for the prompt embedding; past it, the request is a
+    # miss (and a trained router routes to strong rather than wait again). Same default as
+    # the router's.
+    embed_timeout_s: float = Field(default=0.5, gt=0)
 
 
 class RouterSpec(BaseModel):
@@ -65,7 +69,10 @@ class RouterSpec(BaseModel):
     # this. MEASURED on a validation split (evals/router, ADR 0018), never guessed: a higher
     # value is safer and sends less traffic to the cheap model.
     threshold: float = Field(ge=0, le=1)
-    alias: str = "relay/auto"  # the model name the router decides for
+    # The model name the router decides for. Fixed: no config ever set another, and allowing
+    # one let a bundle point the router at relay/cheap or relay/strong. A Literal (not a
+    # removed field) keeps existing configs and stored bundles, which spell it out, valid.
+    alias: Literal["relay/auto"] = "relay/auto"
     # How long to wait for the prompt embedding before giving up and routing to strong. A warm
     # embedding takes 20-40 ms; 0.5 s leaves room for a cold CPU (on a laptop running Docker, the
     # first requests after minutes of idle took several times longer) while still bounding what

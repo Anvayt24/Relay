@@ -68,7 +68,7 @@ class PolicyPoller:
             self._runtime.apply(
                 active,
                 candidate,
-                mode=pointer.candidate_mode or "active",
+                mode=pointer.candidate_mode,
                 canary_pct=pointer.canary_pct,
             )
         except BundleError as e:

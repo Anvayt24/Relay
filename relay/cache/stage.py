@@ -31,7 +31,7 @@ from collections.abc import AsyncGenerator
 from prometheus_client import Counter, Histogram
 
 from relay.cache.eligibility import check
-from relay.cache.embed import Embedder
+from relay.cache.embed import Embedder, EmbedderBusy
 from relay.cache.entry import CachedReply
 from relay.cache.exact import CacheUnavailable, ExactStore
 from relay.cache.keys import (
@@ -43,7 +43,6 @@ from relay.cache.keys import (
 )
 from relay.cache.result import CacheResult
 from relay.cache.semantic import SemanticStore
-from relay.config.schema import RelayConfig
 from relay.pipeline.context import RequestContext
 from relay.pipeline.stage import Continue, Outcome, ShortCircuit, StageResult
 from relay.pipeline.streaming import PrimedStream
@@ -86,19 +85,39 @@ class CacheStage:
 
     def __init__(
         self,
-        config: RelayConfig,
         *,
         exact: ExactStore | None,
         semantic: SemanticStore | None = None,
         embedder: Embedder | None = None,
     ) -> None:
-        self._config = config
         self._exact = exact
         self._semantic = semantic
         self._embedder = embedder
         self._pending: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------ lookup
+    async def _embed(self, ctx: RequestContext, text: str, timeout_s: float) -> list[float] | None:
+        """The prompt's embedding, bounded like the router's (found in review: unbounded, a slow
+        embedder delayed every cacheable request). On failure it records why on the context,
+        so the router routes to strong for that reason instead of waiting a second time."""
+        assert self._embedder is not None
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(timeout_s):
+                ctx.embedding = await self._embedder.embed(text)
+        except TimeoutError:
+            ctx.embed_failure = "embed_timeout"
+        except EmbedderBusy:
+            ctx.embed_failure = "embed_busy"
+        except Exception:  # an embedding failure must never fail the request
+            ctx.embed_failure = "embed_error"
+            logger.exception("prompt embedding failed; serving from the provider")
+        if ctx.embedding is None:
+            ERRORS.labels(layer="embedding").inc()
+            return None
+        EMBED_SECONDS.observe(time.perf_counter() - started)
+        return ctx.embedding
+
     async def process(self, ctx: RequestContext) -> StageResult:
         req = ctx.request
         elig = check(req, ctx.tenant.cache, no_store=ctx.cache_no_store)
@@ -107,7 +126,7 @@ class CacheStage:
             REQUESTS.labels(layer="none", result="bypass").inc()
             return Continue()
 
-        config = ctx.applied.config if ctx.applied is not None else self._config
+        config = ctx.applied.config  # the route policy serving this request (ADR 0023)
         route = config.routes[ctx.route]
         cap = req.max_tokens or max(
             (config.models[m].default_max_tokens for m in route.aliases.values()),
@@ -138,27 +157,26 @@ class CacheStage:
             assert text is not None  # eligibility guarantees one user message
             namespace = semantic_namespace(scope, req)
             guard = guard_signature(text)
-            try:
-                started = time.perf_counter()
-                ctx.embedding = await self._embedder.embed(text)
-                EMBED_SECONDS.observe(time.perf_counter() - started)
-                hit = await self._semantic.lookup(
-                    namespace,
-                    ctx.embedding,
-                    threshold=route.cache.semantic_threshold,
-                    max_tokens=cap,
-                    guard=guard if route.cache.lexical_guard else None,
-                )
-            except CacheUnavailable:
-                ERRORS.labels(layer="semantic").inc()
-            except Exception:  # an embedding failure must never fail the request
-                ERRORS.labels(layer="embedding").inc()
-                logger.exception("semantic cache lookup failed; serving from the provider")
-            else:
-                if hit is not None:
-                    SIMILARITY.observe(hit.similarity)
-                    return self._hit(ctx, hit.reply, "semantic", key, hit.similarity)
-                REQUESTS.labels(layer="semantic", result="miss").inc()
+            embedding = await self._embed(ctx, text, route.cache.embed_timeout_s)
+            if embedding is not None:
+                try:
+                    hit = await self._semantic.lookup(
+                        namespace,
+                        embedding,
+                        threshold=route.cache.semantic_threshold,
+                        max_tokens=cap,
+                        guard=guard if route.cache.lexical_guard else None,
+                    )
+                except CacheUnavailable:
+                    ERRORS.labels(layer="semantic").inc()
+                except Exception:  # a lookup bug must never fail the request
+                    ERRORS.labels(layer="semantic").inc()
+                    logger.exception("semantic cache lookup failed; serving from the provider")
+                else:
+                    if hit is not None:
+                        SIMILARITY.observe(hit.similarity)
+                        return self._hit(ctx, hit.reply, "semantic", key, hit.similarity)
+                    REQUESTS.labels(layer="semantic", result="miss").inc()
 
         ctx.cache = CacheResult(
             "miss",
@@ -269,7 +287,7 @@ def cache_scope(ctx: RequestContext) -> str:
     differently, so an answer chosen under the old one must not be served under it. Requests
     for an explicit model or another alias don't depend on the router and keep their entries."""
     applied = ctx.applied
-    if applied is None or applied.version is None:
+    if applied.version is None:
         return ctx.tenant.id
     router = applied.config.routes[ctx.route].router
     if router is not None and ctx.request.model == router.alias:

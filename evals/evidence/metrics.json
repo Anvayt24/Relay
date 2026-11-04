@@ -792,9 +792,9 @@
     "n_human": 100,
     "bad": {
       "w": 0.84,
-      "rolled_back": 0.66,
+      "rolled_back": 0.68,
       "promote_recommended": 0.0,
-      "undecided": 0.34,
+      "undecided": 0.32,
       "median_pairs_to_decision": 250.0
     },
     "good": {
@@ -814,7 +814,7 @@
     "false_safe_judge_only_loss_blind": 0.935,
     "false_safe_ppi_drifted": 0.17,
     "m8_share": 0.019,
-    "canary_bad_rolled_back": 0.6,
+    "canary_bad_rolled_back": 0.65,
     "canary_good_rolled_back": 0.0
   }
 }

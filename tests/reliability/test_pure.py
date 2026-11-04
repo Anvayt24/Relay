@@ -49,16 +49,16 @@ def test_policy_sets_are_consistent() -> None:
 
 
 # ---------------------------------------------------------------- backoff
-@given(attempt=st.integers(0, 20), seed=st.integers(0, 2**32))
-def test_full_jitter_stays_within_the_exponential_cap(attempt: int, seed: int) -> None:
-    delay = full_jitter(attempt, base_s=0.2, cap_s=2.0, rng=random.Random(seed))
-    assert 0.0 <= delay <= min(2.0, 0.2 * 2**attempt)
+@given(seed=st.integers(0, 2**32))
+def test_full_jitter_stays_within_the_cap(seed: int) -> None:
+    assert 0.0 <= full_jitter(base_s=0.2, cap_s=2.0, rng=random.Random(seed)) <= 0.2
+    assert 0.0 <= full_jitter(base_s=5.0, cap_s=2.0, rng=random.Random(seed)) <= 2.0
 
 
 def test_full_jitter_spreads_retries_over_the_whole_window() -> None:
     # The point of *full* jitter: retries that failed together don't come back together.
     rng = random.Random(1)
-    delays = [full_jitter(0, base_s=1.0, cap_s=10.0, rng=rng) for _ in range(2000)]
+    delays = [full_jitter(base_s=1.0, cap_s=10.0, rng=rng) for _ in range(2000)]
     assert min(delays) < 0.05
     assert max(delays) > 0.95
     assert 0.45 < sum(delays) / len(delays) < 0.55

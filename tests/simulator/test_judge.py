@@ -21,15 +21,6 @@ def test_sensitivity_and_false_loss_rate_are_respected() -> None:
     assert on_ties.count("loss") / N == pytest.approx(0.05, abs=0.006)
 
 
-def test_drift_changes_the_parameters_from_its_index() -> None:
-    blind = JudgeParams(sensitivity=0.0)
-    judge = MockJudge(seed=2, drift=[(100, blind)])
-    assert judge.params_at(99) == JudgeParams()
-    assert judge.params_at(100) == blind
-    assert judge.verdict(cand_correct=False, ref_correct=True, index=99) == "loss"
-    assert judge.verdict(cand_correct=False, ref_correct=True, index=100) == "win_or_tie"
-
-
 def test_params_validate() -> None:
     with pytest.raises(ValueError):
         JudgeParams(sensitivity=1.1)

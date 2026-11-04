@@ -114,16 +114,14 @@ def seconds_to_utc_midnight(now: datetime) -> float:
 
 
 # Which models a request might be served by: the dispatcher's candidate plan (primary first,
-# then fallbacks). Without a planner, only the routed model.
+# then fallbacks).
 type ModelPlanner = Callable[[RequestContext], Sequence[str]]
 
 
 class ReservationStage:
     name = "reservation"
 
-    def __init__(
-        self, store: CapacityStore, config: RelayConfig, *, planner: ModelPlanner | None = None
-    ) -> None:
+    def __init__(self, store: CapacityStore, config: RelayConfig, *, planner: ModelPlanner) -> None:
         self._store = store
         self._config = config
         self._planner = planner
@@ -134,7 +132,7 @@ class ReservationStage:
         for the most expensive model reachable through the route's fallback graph"). The
         settle at the end charges only what the serving model really cost."""
         assert ctx.decision is not None
-        names = self._planner(ctx) if self._planner else [ctx.decision.model]
+        names = self._planner(ctx)
         tokens_needed, nano = 0, 0
         for name in names:
             model = self._config.models[name]

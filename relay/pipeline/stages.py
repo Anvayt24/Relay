@@ -5,11 +5,13 @@ Each stage is a small class with its dependencies passed into ``__init__``. Noth
 up globally, so a test builds a stage with exactly the router, providers or writer it wants.
 """
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
 
-from relay.config.schema import RelayConfig
+from prometheus_client import Counter
+
 from relay.pipeline.context import RequestContext
 from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, StageResult
 from relay.routing.base import Router
@@ -25,6 +27,12 @@ if TYPE_CHECKING:
     from relay.reliability.dispatch import ReliableDispatcher
 
 logger = logging.getLogger(__name__)
+
+SHADOW_DECISIONS = Counter(
+    "relay_policy_shadow_decisions_total",
+    "Decisions made by a shadow policy's router (logged, never applied).",
+    ["result"],  # ok | error
+)
 
 
 class LogStage:
@@ -134,18 +142,17 @@ class RouteStage:
 
     name = "route"
 
-    def __init__(self, router: Router, config: RelayConfig) -> None:
-        self._router = router
-        self._config = config
+    def __init__(self) -> None:
+        # Shadow decisions in flight, by request context (see _shadow_decision).
+        self._shadow: dict[int, asyncio.Task[None]] = {}
 
     async def process(self, ctx: RequestContext) -> StageResult:
-        # The router of the policy serving this request (Phase 13), else this stage's own.
-        router = ctx.applied.router if ctx.applied is not None else self._router
+        # The router of the policy serving this request (Phase 13: the YAML one, or a bundle's).
         try:
-            decision = await router.decide(ctx.request, ctx)
+            decision = await ctx.applied.router.decide(ctx.request, ctx)
         except RelayError as e:
             return Reject(e)
-        provider = self._config.models[decision.model].provider
+        provider = ctx.applied.config.models[decision.model].provider
         if not ctx.tenant.allows(decision.model, provider):
             # The same 404 as for a model that doesn't exist: nothing leaks about what other
             # tenants can reach.
@@ -155,31 +162,42 @@ class RouteStage:
         # when the request arrived (ADR 0023). Without one, the policy that decided: the
         # request's version was set before routing (to the static policy), so without this a
         # router's version would never reach the log row or a cache entry.
-        if ctx.applied is None or ctx.applied.version is None:
+        if ctx.applied.version is None:
             ctx.policy_version = decision.policy_version
         ctx.router_reason = decision.reason
         ctx.router_score = decision.score
-        await self._shadow_decision(ctx)
+        shadow = ctx.policy.shadow() if ctx.policy is not None else None
+        if shadow is not None:
+            # Off the request's path: it runs while the provider answers and is collected in
+            # finalize, before the log row is written. Awaiting it here (as before review) put
+            # a whole embedding on the request whenever the live policy hadn't computed one.
+            self._shadow[id(ctx)] = asyncio.create_task(
+                self._shadow_decision(ctx, shadow.router, shadow.version)
+            )
         return Continue()
 
-    async def _shadow_decision(self, ctx: RequestContext) -> None:
+    async def _shadow_decision(
+        self, ctx: RequestContext, router: Router, version: str | None
+    ) -> None:
         """Shadow mode (FR-11): the candidate's router decides too; the decision is logged and
-        never applied. It reuses the request's embedding, so it costs no provider call. A
-        failure here is swallowed: a shadow bundle must never change a response."""
-        shadow = ctx.policy.shadow() if ctx.policy is not None else None
-        if shadow is None:
-            return
+        never applied, and it records no router metrics. A failure here is swallowed: a shadow
+        bundle must never change a response."""
         try:
-            decision = await shadow.router.decide(ctx.request, ctx)
+            decision = await router.decide(ctx.request, ctx, shadow=True)
         except Exception:
-            logger.warning("shadow policy %s could not decide", shadow.version, exc_info=True)
+            SHADOW_DECISIONS.labels(result="error").inc()
+            logger.warning("shadow policy %s could not decide", version, exc_info=True)
             return
-        ctx.shadow_policy_version = shadow.version
+        SHADOW_DECISIONS.labels(result="ok").inc()
+        ctx.shadow_policy_version = version
         ctx.shadow_tier = decision.tier
         ctx.shadow_score = decision.score
 
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
-        return None
+        task = self._shadow.pop(id(ctx), None)
+        if task is not None:
+            # Bounded by the shadow router's own embedding timeout; usually long finished.
+            await task
 
 
 class ProviderStage:
@@ -214,4 +232,4 @@ class ProviderStage:
         elif outcome.status == "failed_midstream":
             self._dispatcher.breakers.record(permit, ErrorClass.STREAM_BROKEN)
         else:
-            self._dispatcher.breakers.get(permit.provider, permit.model).release(permit)
+            self._dispatcher.breakers.release(permit)

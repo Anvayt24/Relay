@@ -17,12 +17,10 @@ numbers, as for any binary classifier:
 Different values for the two give an *asymmetric bias*. One "accuracy" number could not
 express "this judge misses losses but rarely raises false alarms".
 
-**Drift.** ``drift`` changes the parameters from a given request index on. §10.9 experiment 3
-uses it: the judge's bias drifts after a degradation, the human-label rectifier goes stale,
-and the experiment shows what that does to the gate.
+(A drifting judge, §10.9 experiment 3, is two of these: evals/evidence/sensitivity.py
+calibrates on one set of parameters and judges with another.)
 """
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -45,30 +43,16 @@ class JudgeParams:
 
 
 class MockJudge:
-    def __init__(
-        self,
-        seed: int,
-        params: JudgeParams | None = None,
-        drift: Sequence[tuple[int, JudgeParams]] = (),
-    ) -> None:
+    def __init__(self, seed: int, params: JudgeParams | None = None) -> None:
         self.seed = seed
         self.params = params or JudgeParams()
-        self.drift = sorted(drift, key=lambda d: d[0])
-
-    def params_at(self, index: int) -> JudgeParams:
-        params = self.params
-        for at_index, drifted in self.drift:
-            if index < at_index:
-                break
-            params = drifted
-        return params
 
     def verdict(
         self, *, cand_correct: bool, ref_correct: bool, index: int, candidate: str = ""
     ) -> Verdict:
         # `candidate` keys the draw, so judging two candidates against the same reference on
         # the same request gives independent judging errors.
-        params = self.params_at(index)
+        params = self.params
         is_loss = outcome(cand_correct, ref_correct) == "loss"
         p_says_loss = params.sensitivity if is_loss else params.false_loss_rate
         u = uniform_for(self.seed, index, candidate, "judge")

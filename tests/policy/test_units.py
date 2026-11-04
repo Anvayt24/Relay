@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from relay.config.loader import DEFAULT_CONFIG, load_config
-from relay.config.schema import FallbackEdge
+from relay.config.schema import EvidenceSpec, FallbackEdge
 from relay.pipeline.context import RequestContext
 from relay.policy import control
 from relay.policy.bundle import (
@@ -23,18 +23,20 @@ from relay.policy.runtime import PolicyRuntime, PolicySnapshot, canary_arm
 from relay.routing.base import RouteDecision
 from relay.routing.static import StaticRouter
 
+from ..conftest import yaml_policy  # type: ignore[import-not-found]
 from ..routing.conftest import chat, length_artifact, routed_config  # type: ignore[import-not-found]
 from .conftest import V1, V2, bundle, v1, v2
 
 BASE = routed_config()
 
 
-def runtime() -> PolicyRuntime:
+def runtime(*, can_route: bool = True, has_evidence: bool = True) -> PolicyRuntime:
     return PolicyRuntime(
         BASE,
-        dict(BASE.models),
         bootstrap=StaticRouter(BASE, dict(BASE.models)),
         router_factory=lambda cfg, arts: StaticRouter(cfg, dict(cfg.models)),
+        can_route=can_route,
+        has_evidence=has_evidence,
     )
 
 
@@ -174,9 +176,24 @@ def test_built_policies_are_reused_so_rollback_is_instant() -> None:
     assert rt.snapshot().active.version is None
 
 
+def test_a_bundle_needing_what_the_replica_did_not_build_is_refused() -> None:
+    # Found in review: such a bundle passed validation, then silently routed every relay/auto
+    # request to strong (no embedder) or produced no evidence (no shadow stage, no board).
+    with pytest.raises(BundleError, match="no embedder"):
+        runtime(can_route=False).build(v1())
+    with_evidence = PolicyBundle(
+        version=V1,
+        routes={"default": RoutePolicy(evidence=EvidenceSpec(judge="mock/strong"))},
+    )
+    with pytest.raises(BundleError, match="no evidence engine"):
+        runtime(has_evidence=False).build(with_evidence)
+    plain = PolicyBundle(version=V1, routes={"default": RoutePolicy()})
+    assert runtime(can_route=False, has_evidence=False).build(plain).version == V1
+
+
 def test_no_candidate_means_no_mode() -> None:
     snap = runtime().apply(v1(), None, mode="canary", canary_pct=50)
-    assert (snap.mode, snap.canary_pct) == ("active", 0)
+    assert (snap.mode, snap.canary_pct) == (None, 0)
     assert snap.arm("anything") is None and snap.shadow() is None
 
 
@@ -201,6 +218,7 @@ def test_a_snapshot_applies_the_candidate_only_to_its_arm() -> None:
 
 
 async def test_the_dispatcher_plans_with_the_applied_bundles_graph() -> None:
+    from relay.admission.pause import PauseState
     from relay.admission.store import MemoryStore
     from relay.providers.mock import MockProvider
     from relay.reliability.breaker import BreakerRegistry
@@ -216,7 +234,7 @@ async def test_the_dispatcher_plans_with_the_applied_bundles_graph() -> None:
         dict(BASE.models),
         {"mock": MockProvider()},
         store=MemoryStore(),
-        pause=None,
+        pause=PauseState(MemoryStore(), BASE),
         breakers=BreakerRegistry(BASE.reliability),
         retry_budget=RetryBudget(ratio=0.1, minimum=3, window_s=10),
         edge_states=SeededEdgeStates(BASE),
@@ -232,6 +250,7 @@ async def test_the_dispatcher_plans_with_the_applied_bundles_graph() -> None:
         policy_version=V2,
         deadline=1e12,
         stream=False,
+        applied=yaml_policy(BASE),
         decision=RouteDecision("strong", "mock/strong", None, "alias", V2),
     )
     assert [c.model for c in dispatcher.plan(ctx)] == ["mock/strong"]  # the YAML: no graph

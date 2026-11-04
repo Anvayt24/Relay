@@ -117,7 +117,7 @@ class OpenAICompatAdapter:
             raise self._error(response.status_code, response.content, response.headers)
         try:
             return self._to_response(response.json(), req)
-        except (ValueError, KeyError, TypeError, IndexError) as exc:
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
             raise ProviderError(ErrorClass.SERVER_ERROR, f"malformed response: {exc!r}") from exc
 
     def _to_response(self, data: dict[str, Any], req: ChatRequest) -> ChatResponse:
@@ -158,6 +158,14 @@ class OpenAICompatAdapter:
                         yield chunk
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=state.content_seen) from exc
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+            # Valid JSON of the wrong shape (a string where an object belongs, a bad number).
+            # As a ProviderError it fails over (or breaks the stream) like any upstream fault,
+            # instead of escaping as a 500 that the breaker never hears about.
+            raise ProviderError(
+                ErrorClass.STREAM_BROKEN if state.content_seen else ErrorClass.SERVER_ERROR,
+                f"malformed stream chunk: {exc!r}",
+            ) from exc
 
         if not state.finished:
             raise ProviderError(

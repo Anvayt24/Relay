@@ -16,6 +16,7 @@ from relay.api.app import create_app
 from relay.config.loader import load_config
 from relay.config.schema import RelayConfig
 from relay.pipeline.context import RequestContext
+from relay.policy.runtime import BuiltPolicy
 from relay.providers.base import ProviderAdapter
 from relay.providers.mock import MockProvider
 from relay.providers.registry import NO_KEYS
@@ -23,6 +24,7 @@ from relay.reliability.breaker import BreakerRegistry
 from relay.reliability.dispatch import ReliableDispatcher
 from relay.reliability.edges import SeededEdgeStates
 from relay.reliability.retry_budget import RetryBudget
+from relay.routing.static import StaticRouter
 from relay.schemas.chat import ChatRequest, ChatResponse, Choice, ResponseMessage, Usage
 from relay.settings import Settings
 from relay.telemetry.log_writer import LogSink
@@ -102,6 +104,11 @@ def make_app() -> Callable[..., FastAPI]:
     return _make
 
 
+def yaml_policy(config: RelayConfig) -> BuiltPolicy:
+    """The policy a request carries when no bundle is active: the YAML config, static router."""
+    return BuiltPolicy(None, config, StaticRouter(config, dict(config.models)))
+
+
 @pytest.fixture
 def ctx() -> RequestContext:
     """A RequestContext for unit tests of stages and routers (no HTTP involved)."""
@@ -118,6 +125,7 @@ def ctx() -> RequestContext:
         policy_version="test",
         deadline=time.monotonic() + 60,
         stream=False,
+        applied=yaml_policy(TEST_CONFIG),
     )
 
 
@@ -143,7 +151,6 @@ def build_dispatcher(
     store: CapacityStore | None = None,
     clock: Callable[[], float] = time.monotonic,
     first_token_ceiling_s: float = 1.0,
-    pause: bool = True,
     seed: int = 0,
 ) -> ReliableDispatcher:
     """A dispatcher wired like the app's, with test-friendly defaults: backoff sleeps return
@@ -155,7 +162,7 @@ def build_dispatcher(
         {name: spec for name, spec in config.models.items() if spec.provider in providers},
         providers,
         store=store,
-        pause=PauseState(store, config, rng=random.Random(seed)) if pause else None,
+        pause=PauseState(store, config, rng=random.Random(seed)),
         breakers=BreakerRegistry(rel, clock=clock),
         retry_budget=RetryBudget(
             ratio=rel.retry_budget_ratio,

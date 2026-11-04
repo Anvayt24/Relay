@@ -5,11 +5,14 @@ client gets, and the exact upstream calls made (``provider.calls``). The second 
 contract of a retry owner: it is as much about the calls it does *not* make.
 """
 
+import asyncio
+
 import pytest
 
 from relay.admission.store import MemoryStore
 from relay.pipeline.streaming import PrimedStream
 from relay.providers.base import ProviderAdapter
+from relay.reliability.breaker import BreakerState
 from relay.reliability.dispatch import ReliableDispatcher
 from relay.schemas.chat import ChatResponse
 from relay.schemas.errors import ErrorClass, RelayError
@@ -253,3 +256,64 @@ async def test_retry_budget_exhaustion_skips_straight_to_fallback() -> None:
         await d.run(make_ctx(route="safe"))
     # min 3 retries + 10% of 6 attempts: only the first 3 requests got a retry.
     assert provs["primary"].calls == 6 + 3
+
+
+# ------------------------------------------------------------------ half-open probes
+class _Hangs(ScriptedProvider):
+    """Never answers: the request can only end by being cancelled."""
+
+    async def complete(self, req):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        await asyncio.Event().wait()
+
+
+class _Raises(ScriptedProvider):
+    """Raises something that is not a ProviderError (a bug, or a parser surprise)."""
+
+    async def complete(self, req):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        raise RuntimeError("boom")
+
+
+def _half_open(d: ReliableDispatcher, clock: FakeClock) -> None:
+    breaker = d.breakers.get("primary", "p/model")
+    for _ in range(10):
+        permit = breaker.acquire()
+        assert permit is not None
+        breaker.record(permit, ErrorClass.SERVER_ERROR)
+    clock.advance(FALLBACK_CONFIG.reliability.breaker_open_s)
+    assert breaker.state is BreakerState.HALF_OPEN
+
+
+def _free_probe_slots(d: ReliableDispatcher) -> int:
+    breaker = d.breakers.get("primary", "p/model")
+    held = []
+    while (permit := breaker.acquire()) is not None:
+        held.append(permit)
+    for permit in held:
+        breaker.release(permit)
+    return len(held)
+
+
+async def test_a_cancelled_probe_gives_its_slot_back() -> None:
+    # Found in review: a client hanging up during a half-open probe kept the slot forever,
+    # so the breaker could never collect enough successful probes to close.
+    clock = FakeClock()
+    d = dispatcher(providers(primary=_Hangs()), clock=clock)
+    _half_open(d, clock)
+    task = asyncio.create_task(d.run(make_ctx(route="none")))
+    await asyncio.sleep(0.01)
+    assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes - 1
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes
+
+
+async def test_an_unexpected_exception_gives_the_probe_slot_back() -> None:
+    clock = FakeClock()
+    d = dispatcher(providers(primary=_Raises()), clock=clock)
+    _half_open(d, clock)
+    with pytest.raises(RuntimeError):
+        await d.run(make_ctx(route="none"))
+    assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes

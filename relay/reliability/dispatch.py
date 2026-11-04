@@ -95,7 +95,7 @@ class ReliableDispatcher:
         providers: Mapping[str, ProviderAdapter],
         *,
         store: CapacityStore,
-        pause: PauseState | None,
+        pause: PauseState,
         breakers: BreakerRegistry,
         retry_budget: RetryBudget,
         edge_states: EdgeStateSource,
@@ -129,15 +129,11 @@ class ReliableDispatcher:
     def breakers(self) -> BreakerRegistry:
         return self._breakers
 
-    def _policy(self, ctx: RequestContext) -> RelayConfig:
-        """The request's route policy: its applied bundle (Phase 13), else the YAML config."""
-        return ctx.applied.config if ctx.applied is not None else self._config
-
     def plan(self, ctx: RequestContext) -> list[Candidate]:
         if ctx.decision is None:
             raise RuntimeError("dispatch needs a route decision; RouteStage goes first")
         return plan_candidates(
-            config=self._policy(ctx),
+            config=ctx.applied.config,  # the request's route policy (ADR 0023)
             models=self._models,
             route=ctx.route,
             tenant=ctx.tenant,
@@ -149,7 +145,7 @@ class ReliableDispatcher:
         """The response (or primed stream) of the first candidate that works. Raises
         ``RelayError`` when none does."""
         candidates = self.plan(ctx)
-        max_hops = self._policy(ctx).routes[ctx.route].max_fallback_hops
+        max_hops = ctx.applied.config.routes[ctx.route].max_fallback_hops
         deadline = Deadline(ctx.deadline)
         run = _Run()
         hops = 0
@@ -205,11 +201,10 @@ class ReliableDispatcher:
         if not deadline.allows(now, self._cfg.min_attempt_s):
             run.deadline_hit = True
             return None, "deadline"
-        if self._pause is not None:
-            wait = await self._pause.paused_for(spec.provider, spec.provider_model)
-            if wait > 0:
-                run.waits.append(wait)
-                return None, "paused"
+        wait = await self._pause.paused_for(spec.provider, spec.provider_model)
+        if wait > 0:
+            run.waits.append(wait)
+            return None, "paused"
 
         breaker = self._breakers.get(spec.provider, candidate.model)
         permit = breaker.acquire()
@@ -217,7 +212,11 @@ class ReliableDispatcher:
             if breaker.state is BreakerState.OPEN:
                 run.waits.append(breaker.retry_after_s())
             return None, "breaker_open"
-        wait = await self._take_provider_capacity(ctx, spec)
+        try:
+            wait = await self._take_provider_capacity(ctx, spec)
+        except BaseException:
+            breaker.release(permit)  # cancelled while holding a probe slot: give it back
+            raise
         if wait > 0:
             breaker.release(permit)
             run.waits.append(wait)
@@ -303,8 +302,7 @@ class ReliableDispatcher:
             except ProviderError as e:
                 latency = self._clock() - started
                 self._breakers.record(permit, e.error_class)
-                if self._pause is not None:
-                    await self._pause.record(spec.provider, spec.provider_model, e)
+                await self._pause.record(spec.provider, spec.provider_model, e)
                 ctx.attempts.append(
                     ProviderAttempt(
                         spec.provider, candidate.model, latency, e.error_class, hop, retry
@@ -333,6 +331,12 @@ class ReliableDispatcher:
                 elif not can_fall_back(e.error_class):
                     run.stop = True
                 return None
+            except BaseException:
+                # Cancelled (the client hung up, shutdown) or a bug: the call has no verdict,
+                # but the permit must go back. A half-open probe slot that is never returned
+                # would leave the breaker unable to ever close.
+                self._breakers.release(permit)
+                raise
 
             latency = self._clock() - started
             ctx.attempts.append(
@@ -385,7 +389,7 @@ class ReliableDispatcher:
         """Wait the backoff and return a permit for the one retry, or None if the retry
         budget, the deadline or the breaker says no."""
         delay = full_jitter(
-            0, base_s=self._cfg.backoff_base_s, cap_s=self._cfg.backoff_cap_s, rng=self._rng
+            base_s=self._cfg.backoff_base_s, cap_s=self._cfg.backoff_cap_s, rng=self._rng
         )
         if not deadline.allows(self._clock(), delay + self._cfg.min_attempt_s):
             return None

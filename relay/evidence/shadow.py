@@ -40,7 +40,7 @@ from relay.admission.store import CapacityStore, StoreUnavailable
 from relay.admission.tokens import output_cap, prompt_tokens, text_tokens
 from relay.config.models import ModelSpec
 from relay.config.pricing import NANO_PER_USD, list_cost_nano
-from relay.config.schema import EvidenceSpec, RelayConfig, RouteSpec
+from relay.config.schema import EvidenceSpec, RouteSpec
 from relay.evidence.board import CardBoard, fallback_comparison
 from relay.evidence.cohorts import cohort_of
 from relay.evidence.judge import Judge
@@ -99,7 +99,7 @@ def jobs_for(ctx: RequestContext, route: RouteSpec, spec: EvidenceSpec) -> list[
     if cheap and strong and served.model == cheap and cheap != strong:
         # In a canary's arm the cheap answer was chosen by the candidate bundle: its evidence
         # is the canary's card (Phase 13), and it decides the canary's fate.
-        version = ctx.applied.version if ctx.applied is not None else None
+        version = ctx.applied.version
         canary = ctx.canary_arm == "canary" and version is not None
         comparison = f"canary:{version}" if canary else "cheap_vs_strong"
         jobs.append(Job(comparison, candidate=cheap, reference=strong, call=strong))
@@ -146,10 +146,8 @@ class ShadowStage:
 
     def __init__(
         self,
-        config: RelayConfig,
         models: Mapping[str, ModelSpec],
         *,
-        call: ShadowCall | None = None,
         judges: JudgeFactory,
         store: EvidenceStore,
         budget: CapacityStore,
@@ -157,9 +155,8 @@ class ShadowStage:
         rng: random.Random | None = None,
         max_pending: int = MAX_PENDING,
     ) -> None:
-        self._config = config
         self._models = models
-        self._call = call
+        self._call: ShadowCall | None = None  # set by bind()
         self._judges = judges
         self._store = store
         self._budget = budget
@@ -184,8 +181,7 @@ class ShadowStage:
             return
         if ctx.cache is not None and ctx.cache.hit:
             return  # nothing was generated for this request
-        config = ctx.applied.config if ctx.applied is not None else self._config
-        route = config.routes.get(ctx.route)
+        route = ctx.applied.config.routes.get(ctx.route)
         if route is None or route.evidence is None:
             return
         answer = "".join(ctx.reply_parts)
@@ -275,6 +271,7 @@ class ShadowStage:
                 policy_version=ctx.policy_version,
                 deadline=time.monotonic() + ctx.tenant.deadlines.batch_s,
                 stream=False,
+                applied=ctx.applied,  # the same policy as the request it shadows
                 decision=RouteDecision(
                     tier=call_model.tier,
                     model=job.call,

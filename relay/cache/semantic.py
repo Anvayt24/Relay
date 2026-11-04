@@ -16,8 +16,20 @@ embedding space and still need *different* answers ("15% of 200" / "15% of 300")
 Two implementations behind one protocol: ``PgVectorStore`` (Postgres + pgvector, HNSW index;
 ADR 0015) for the running gateway, and ``MemorySemanticStore`` (brute force) for tests and the
 evaluation, which share the exact matching rules.
+
+**Two things keep the Postgres lookup honest over time** (both found in review):
+- *Iterative index scans.* HNSW finds the ``ef_search`` nearest vectors first and filters them
+  afterwards. Rows of other namespaces (or expired ones) can fill all of those places, and the
+  lookup then returns nothing although a match exists. ``hnsw.iterative_scan`` (pgvector 0.8)
+  makes the scan continue until the filter is satisfied.
+- *An expiry sweep.* Expired rows are filtered out of every lookup but were never deleted, so
+  the table, the index and the false misses above grew with traffic. A background task now
+  deletes them in batches.
 """
 
+import asyncio
+import contextlib
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -30,7 +42,10 @@ from relay.cache.entry import CachedReply
 from relay.cache.exact import CacheUnavailable
 from relay.cache.keys import fits
 
-DIMENSIONS = 384
+logger = logging.getLogger(__name__)
+
+SWEEP_INTERVAL_S = 300.0
+SWEEP_BATCH = 1000
 
 
 @dataclass(frozen=True)
@@ -130,10 +145,18 @@ class MemorySemanticStore:
 class PgVectorStore:
     """Postgres + pgvector. Cosine distance is ``<=>``; similarity = ``1 - distance``."""
 
-    def __init__(self, dsn: str, *, command_timeout_s: float = 0.5) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        command_timeout_s: float = 0.5,
+        sweep_interval_s: float = SWEEP_INTERVAL_S,
+    ) -> None:
         self._dsn = dsn
         self._timeout = command_timeout_s
+        self._sweep_interval_s = sweep_interval_s
         self._pool: asyncpg.Pool | None = None
+        self._sweeper: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         # min_size=0: nothing connects at startup, so Relay starts with Postgres down; the
@@ -143,12 +166,43 @@ class PgVectorStore:
             min_size=0,
             max_size=4,
             command_timeout=self._timeout,
-            init=_register_vector,
+            init=_init_connection,
         )
+        self._sweeper = asyncio.create_task(self._sweep_forever(), name="relay-cache-sweep")
 
     async def close(self) -> None:
+        if self._sweeper is not None:
+            self._sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._sweeper
         if self._pool is not None:
             await self._pool.close()
+
+    async def sweep(self) -> int:
+        """Delete expired entries, in batches so no single statement holds locks for long.
+        Every replica sweeps; the deletes are idempotent, so that is harmless."""
+        pool = self._need_pool()
+        deleted = 0
+        async with pool.acquire() as conn:
+            while True:
+                status = await conn.execute(
+                    "DELETE FROM cache_entries WHERE id IN (SELECT id FROM cache_entries"
+                    " WHERE expires_at <= now() LIMIT $1)",
+                    SWEEP_BATCH,
+                    timeout=30,
+                )
+                n = int(status.split()[-1])  # "DELETE <n>"
+                deleted += n
+                if n < SWEEP_BATCH:
+                    return deleted
+
+    async def _sweep_forever(self) -> None:
+        while True:
+            await asyncio.sleep(self._sweep_interval_s)
+            try:
+                await self.sweep()
+            except Exception as e:  # Postgres down: the next sweep tries again
+                logger.warning("semantic cache sweep failed: %r", e)
 
     async def lookup(
         self,
@@ -213,7 +267,11 @@ class PgVectorStore:
         return self._pool
 
 
-async def _register_vector(conn: asyncpg.Connection) -> None:
+async def _init_connection(conn: asyncpg.Connection) -> None:
     from pgvector.asyncpg import register_vector
 
     await register_vector(conn)
+    # Keep scanning the index until the namespace filter finds its nearest row, instead of
+    # filtering a fixed ef_search candidates and possibly returning none (see the docstring).
+    # strict_order keeps the results exactly ordered, which LIMIT 1 relies on.
+    await conn.execute("SET hnsw.iterative_scan = strict_order")

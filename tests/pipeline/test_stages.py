@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from relay.admission.pause import PauseState
 from relay.admission.store import MemoryStore
 from relay.config.loader import load_config
 from relay.pipeline.context import RequestContext
@@ -12,7 +13,6 @@ from relay.reliability.breaker import BreakerRegistry
 from relay.reliability.dispatch import ReliableDispatcher
 from relay.reliability.edges import SeededEdgeStates
 from relay.reliability.retry_budget import RetryBudget
-from relay.routing.static import StaticRouter
 from relay.schemas.errors import ErrorClass
 
 from ..conftest import build_dispatcher  # type: ignore[import-not-found]
@@ -21,7 +21,7 @@ CONFIG = load_config(Path(__file__).parents[1] / "config" / "test.yaml")
 
 
 async def test_route_stage_sets_decision(ctx: RequestContext) -> None:
-    result = await RouteStage(StaticRouter(CONFIG, CONFIG.models), CONFIG).process(ctx)
+    result = await RouteStage().process(ctx)
     assert result == Continue()
     assert ctx.decision is not None
     assert ctx.decision.model == "mock/strong"
@@ -29,7 +29,7 @@ async def test_route_stage_sets_decision(ctx: RequestContext) -> None:
 
 async def test_route_stage_rejects_unknown_model(ctx: RequestContext) -> None:
     ctx.request = ctx.request.model_copy(update={"model": "nope"})
-    result = await RouteStage(StaticRouter(CONFIG, CONFIG.models), CONFIG).process(ctx)
+    result = await RouteStage().process(ctx)
     assert isinstance(result, Reject)
     assert result.error.status == 404
 
@@ -37,7 +37,7 @@ async def test_route_stage_rejects_unknown_model(ctx: RequestContext) -> None:
 async def test_provider_stage_sends_upstream_id_and_returns_relay_name(
     ctx: RequestContext,
 ) -> None:
-    await RouteStage(StaticRouter(CONFIG, CONFIG.models), CONFIG).process(ctx)
+    await RouteStage().process(ctx)
     result = await ProviderStage(build_dispatcher(CONFIG, {"mock": MockProvider()})).process(ctx)
 
     assert isinstance(result, ShortCircuit)
@@ -51,7 +51,7 @@ async def test_provider_stage_sends_upstream_id_and_returns_relay_name(
 
 
 async def test_provider_stage_maps_provider_error_to_reject(ctx: RequestContext) -> None:
-    await RouteStage(StaticRouter(CONFIG, CONFIG.models), CONFIG).process(ctx)
+    await RouteStage().process(ctx)
     provider = MockProvider(MockBehavior(error=ErrorClass.TIMEOUT))
     result = await ProviderStage(build_dispatcher(CONFIG, {"mock": provider})).process(ctx)
 
@@ -77,7 +77,7 @@ def test_dispatcher_validates_config_at_construction() -> None:
             CONFIG.models,
             {},
             store=MemoryStore(),
-            pause=None,
+            pause=PauseState(MemoryStore(), CONFIG),
             breakers=BreakerRegistry(CONFIG.reliability),
             retry_budget=RetryBudget(ratio=0.1, minimum=3, window_s=10),
             edge_states=SeededEdgeStates(CONFIG),

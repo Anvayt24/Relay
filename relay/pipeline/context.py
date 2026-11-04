@@ -69,6 +69,10 @@ class RequestContext:
     # moves backwards never fires. Bounds every retry and fallback hop (ADR 0008).
     deadline: float
     stream: bool
+    # Phase 13 (ADR 0023). The policy that serves this request: the active one, or the
+    # candidate for a request in the canary arm (the YAML policy when no bundle is active).
+    # Every stage reads route policy from it, so a swap mid-request can't mix two policies.
+    applied: "BuiltPolicy"
     decision: RouteDecision | None = None
     attempts: list[ProviderAttempt] = field(default_factory=list)
     # Two clocks for two jobs. Monotonic for measuring durations: it never jumps. Wall-clock
@@ -102,6 +106,9 @@ class RequestContext:
     cache: CacheResult | None = None
     # The prompt embedding, computed once for the cache and reused by the router (Phase 11).
     embedding: list[float] | None = None
+    # Why that embedding could not be computed (embed_timeout | embed_busy | embed_error), so
+    # the router doesn't wait a second time for an embedder that just failed.
+    embed_failure: str | None = None
     # Phase 11. Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
     # and, when the trained router decided, its score. Logged for every request: a later phase
     # samples the score band that would move under a lower threshold (PRD §10.2 item 5).
@@ -111,12 +118,9 @@ class RequestContext:
     # request ends: the JSON reply, or the chunks a stream forwarded.
     reply_parts: list[str] = field(default_factory=list)
     finish_reason: str | None = None
-    # Phase 13 (ADR 0023). The policy snapshot taken when the request arrived, and the policy
-    # that serves it: the active one, or the candidate for a request in the canary arm. Every
-    # stage reads route policy from `applied`, so a swap mid-request can't mix two policies.
-    # None outside the HTTP path (tests that run stages directly): the stage's own config.
+    # The policy snapshot taken when the request arrived (it knows the shadow candidate).
+    # None outside the HTTP path (the shadow stage's own calls, tests that run stages directly).
     policy: "PolicySnapshot | None" = None
-    applied: "BuiltPolicy | None" = None
     canary_arm: str | None = None  # control | canary; None when no canary is running
     # Shadow mode: what the candidate's router would have decided. Logged, never applied.
     shadow_policy_version: str | None = None

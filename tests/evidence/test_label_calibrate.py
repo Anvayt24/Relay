@@ -198,3 +198,41 @@ def test_pairs_round_trip_through_jsonl(tmp_path: Path) -> None:
     write_jsonl(original, path)
     assert read_jsonl(path) == original
     assert original[1].judge_loss is None and original[0].judge_loss is False
+
+
+def test_a_shadow_pair_becomes_a_labeling_item_with_its_own_id() -> None:
+    from datetime import UTC, datetime
+
+    from relay.evidence.label import eval_pair
+    from relay.evidence.store import ShadowPair
+
+    shadow = ShadowPair(
+        pair_id="s1",
+        request_id="r1",
+        route="default",
+        prompt_hash="h",
+        cohort="c",
+        comparison="cheap_vs_strong",
+        candidate_model="mock/cheap",
+        reference_model="mock/strong",
+        judge_label="tie",
+        judge_model="judge",
+        judge_prompt_version="v1",
+        position_swapped=True,
+        text_retained=True,
+        ts=datetime(2026, 11, 4, tzinfo=UTC),
+        prompt_text="q",
+        candidate_text="a",
+        reference_text="b",
+    )
+    item = eval_pair(shadow)
+    # The id is the shadow pair's, so a label made on it imports straight onto that pair.
+    assert (item.id, item.prompt, item.candidate_response, item.reference_response) == (
+        "s1",
+        "q",
+        "a",
+        "b",
+    )
+    assert build_queue([item])  # the labeling page can queue it
+    with pytest.raises(ValueError, match="kept no text"):
+        eval_pair(ShadowPair(**{**shadow.__dict__, "prompt_text": None}))

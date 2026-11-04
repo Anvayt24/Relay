@@ -164,3 +164,35 @@ async def test_canary_and_shadow_columns_round_trip(
     )
     assert (row[0], row[1], row[2]) == ("control", "2026-10-28.2", "strong")
     assert row[3] == pytest.approx(0.4, abs=1e-6)
+
+
+async def test_shadow_pairs_export_for_labeling_and_labels_import_back(
+    schema: tuple[asyncpg.Connection, str],
+) -> None:
+    # Found in review: the labeling tool only read JSONL files, and nothing exported the
+    # production shadow pairs, so a route's rectifier could never reach 50 labels.
+    from dataclasses import replace
+
+    from relay.evidence.label import eval_pair
+
+    _, dsn = schema
+    store = PostgresEvidenceStore(dsn)
+    await store.start()
+    try:
+        t0 = datetime.now(UTC) - timedelta(hours=1)
+        rows = [
+            replace(shadow_pair(i, "tie", t0), candidate_text="a", reference_text="b")
+            for i in range(10)
+        ]
+        await store.write_pairs(rows)
+        await store.import_labels([HumanLabel("s0", "tie", "a1", False, t0)])
+        exported = [eval_pair(p) for p in await store.labelable_pairs("default", 100)]
+        # Only even pairs kept their text, and s0 is already labeled.
+        assert sorted(p.id for p in exported) == ["s2", "s4", "s6", "s8"]
+        assert all(p.prompt == "hi" and p.candidate_response == "a" for p in exported)
+        assert await store.labelable_pairs("other-route", 100) == []
+        labels = [HumanLabel(p.id, "loss", "a1", False, t0) for p in exported]
+        assert await store.import_labels(labels) == 4  # the labels land on the shadow pairs
+        assert await store.labelable_pairs("default", 100) == []
+    finally:
+        await store.close()

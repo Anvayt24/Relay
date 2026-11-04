@@ -115,11 +115,12 @@ def test_old_labels_make_the_rectifier_stale() -> None:
 
 
 def test_before_the_first_look_nothing_is_decided() -> None:
-    card = cards_for(make_pairs(n_judge=300, n_human=200, w=0.99))[ALL]
+    # 450 judged pairs (200 of them also human-labeled): the first look is at 500.
+    card = cards_for(make_pairs(n_judge=250, n_human=200, w=0.99))[ALL]
     assert card.state == "undecided"
     assert card.look == 0
     assert card.recommended_action == "collect_more"
-    assert card.samples_needed == 200
+    assert card.samples_needed == 50
 
 
 @pytest.mark.parametrize(
@@ -151,12 +152,25 @@ def test_after_the_last_look_undecided_is_final() -> None:
 
 
 def test_the_decision_uses_only_the_look_sample() -> None:
-    # 1,400 judged pairs, looks every 500: the decision at look 2 uses exactly 1,000 of them.
-    pairs = make_pairs(n_judge=1400, n_human=200, w=0.97)
+    # 1,400 judged pairs (the first 200 also human-labeled), looks every 500: look 2 covers
+    # the first 1,000 of them, so its judge-only sample is the 800 unlabeled ones in it.
+    pairs = make_pairs(n_judge=1200, n_human=200, w=0.97)
     cards = cards_for(pairs)
     assert cards[ALL].look == 2
-    assert cards[ALL].n_judge == 1400
-    assert sum(c.n_judge for c in cards.values() if c.cohort == ALL) == 1400
+    assert cards[ALL].n_judge == 1200
+    assert cards[ALL].n_human == 200
+
+
+def test_labeling_never_moves_the_look_backwards() -> None:
+    # Found in review: looks counted unlabeled pairs only, so labeling 10 of 1,000 pairs took
+    # the card from look 2 back to look 1, and swapped later pairs into look 1's data.
+    pairs = make_pairs(n_judge=800, n_human=200, w=0.97)
+    assert cards_for(pairs)[ALL].look == 2
+    labeled = [
+        replace(p, human_label=p.judge_label, human_ts=NOW) if 200 <= i < 210 else p
+        for i, p in enumerate(pairs)
+    ]
+    assert cards_for(labeled)[ALL].look == 2
 
 
 def test_a_state_only_changes_at_a_new_look() -> None:
@@ -227,7 +241,6 @@ def test_bootstrap_interval_option() -> None:
         looks=LookSchedule(every=500, max_looks=4),
         min_cohort_n=50,
         interval="bootstrap",
-        n_boot=400,
     )
     card = cards_for(make_pairs(n_judge=2000, n_human=200, w=0.98), spec)[ALL]
     assert card.interval == "bootstrap"

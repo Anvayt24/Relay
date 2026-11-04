@@ -16,6 +16,13 @@ while a request is in flight doesn't give that request two policies.
 
 **No bundle** (no database, or none created yet): the active policy is the YAML one
 (``version=None``) and everything behaves exactly as before policy bundles existed.
+
+**A bundle can't ask for more than the replica built.** What a replica constructs at startup
+(the embedder, the evidence engine) is decided from its YAML config. A bundle that adds a
+trained router to a replica with no embedder, or an ``evidence:`` section to one with no
+evidence engine, would pass validation and then silently degrade (every ``relay/auto`` to
+strong; no shadow pairs, no cards). ``build`` refuses it instead, so the replica keeps its
+last-known-good policy and the poll error says why (found in review).
 """
 
 import hashlib
@@ -24,19 +31,20 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from relay.config.models import ModelSpec
 from relay.config.schema import RelayConfig
-from relay.policy.bundle import PolicyBundle, artifacts, effective_config
+from relay.policy.bundle import BundleError, PolicyBundle, artifacts, effective_config
+from relay.policy.control import CandidateMode
+from relay.routing.artifact import RouterArtifact
 from relay.routing.base import Router
 
 logger = logging.getLogger(__name__)
 
-Mode = Literal["active", "shadow", "canary"]
 Arm = Literal["control", "canary"]
 
-# Builds a router for an effective config and its artifacts (the app passes one that wires
-# the shared embedder; tests pass simple ones).
-type RouterFactory = Callable[[RelayConfig, Mapping[str, object]], Router]
+# Builds a router for an effective config and each routed route's artifact (None: missing or
+# invalid, so that route's relay/auto goes to strong). The app's wires the shared embedder and
+# also builds the YAML policy's router; tests pass simple ones.
+type RouterFactory = Callable[[RelayConfig, Mapping[str, RouterArtifact | None]], Router]
 
 
 @dataclass(frozen=True)
@@ -50,7 +58,7 @@ class BuiltPolicy:
 class PolicySnapshot:
     active: BuiltPolicy
     candidate: BuiltPolicy | None = None
-    mode: Mode = "active"  # what the candidate is doing: shadow or canary (active: none)
+    mode: CandidateMode | None = None  # what the candidate is doing (None: no candidate)
     canary_pct: int = 0
 
     def arm(self, key: str) -> Arm | None:
@@ -81,21 +89,22 @@ class PolicyRuntime:
     def __init__(
         self,
         base: RelayConfig,
-        models: Mapping[str, ModelSpec],
         *,
         bootstrap: Router,
         router_factory: RouterFactory,
+        can_route: bool,
+        has_evidence: bool,
     ) -> None:
+        """``can_route``: this replica can run a trained router (it built an embedder, or the
+        embedder is deliberately off, which is the documented route-to-strong degradation).
+        ``has_evidence``: it built the evidence engine (card board, shadow sampling)."""
         self._base = base
-        self._models = models
         self._router_factory = router_factory
+        self._can_route = can_route
+        self._has_evidence = has_evidence
         self._built: dict[str, BuiltPolicy] = {}
         self._yaml = BuiltPolicy(None, base, bootstrap)
         self._snapshot = PolicySnapshot(active=self._yaml)
-
-    @property
-    def base(self) -> RelayConfig:
-        return self._base
 
     def snapshot(self) -> PolicySnapshot:
         return self._snapshot
@@ -106,6 +115,17 @@ class PolicyRuntime:
         if cached is not None:
             return cached
         config = effective_config(self._base, bundle)
+        for name, route in config.routes.items():
+            if route.router is not None and not self._can_route:
+                raise BundleError(
+                    f"bundle {bundle.version} route {name!r} has a trained router, but this "
+                    "replica built no embedder (no route in its YAML config uses a router)"
+                )
+            if route.evidence is not None and not self._has_evidence:
+                raise BundleError(
+                    f"bundle {bundle.version} route {name!r} has an evidence section, but this "
+                    "replica built no evidence engine (no route in its YAML config has one)"
+                )
         router = self._router_factory(config, artifacts(bundle))
         built = BuiltPolicy(bundle.version, config, router)
         self._built[bundle.version] = built
@@ -116,7 +136,7 @@ class PolicyRuntime:
         active: PolicyBundle | None,
         candidate: PolicyBundle | None = None,
         *,
-        mode: Mode = "active",
+        mode: CandidateMode | None = None,
         canary_pct: int = 0,
     ) -> PolicySnapshot:
         """Build everything first, then swap in one assignment: a request sees either the old
@@ -126,7 +146,7 @@ class PolicyRuntime:
         new_active = self.build(active) if active is not None else self._yaml
         new_candidate = self.build(candidate) if candidate is not None else None
         if new_candidate is None:
-            mode, canary_pct = "active", 0
+            mode, canary_pct = None, 0
         self._snapshot = PolicySnapshot(new_active, new_candidate, mode, canary_pct)
         logger.info(
             "policy: active %s, candidate %s (%s %s%%)",
