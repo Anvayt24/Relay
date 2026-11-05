@@ -31,7 +31,7 @@ module's loss-positive convention.
 import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -39,7 +39,7 @@ import numpy as np
 from scipy.stats import norm
 
 from relay.evidence import stats
-from relay.evidence.calibrate import KAPPA_MIN, LOSS_RECALL_MIN, MIN_N
+from relay.evidence.calibrate import passes_gate
 from relay.evidence.looks import LookSchedule
 
 State = Literal["safe", "unsafe", "undecided", "uncalibrated", "stale"]
@@ -91,13 +91,7 @@ class JudgeCalibration:
 
     @property
     def calibrated(self) -> bool:
-        return (
-            self.n >= MIN_N
-            and not math.isnan(self.kappa)
-            and not math.isnan(self.loss_recall)
-            and self.kappa >= KAPPA_MIN
-            and self.loss_recall >= LOSS_RECALL_MIN
-        )
+        return passes_gate(self.n, self.kappa, self.loss_recall)
 
 
 @dataclass(frozen=True)
@@ -126,8 +120,6 @@ class RouteCard:
     lam: float | None = None
     ess_gain: float | None = None
     n_excluded: int = 0  # pairs from another judge, or abstentions
-    w_self: float | None = None
-    cost_per_1k_requests: dict[str, float] | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -462,10 +454,6 @@ def action(comparison: str, state: State, promotable: bool) -> str:
     if kind == "canary":
         return "promote" if promotable else "collect_more"
     return "none"
-
-
-def with_cost(card: RouteCard, cost: Mapping[str, float] | None) -> RouteCard:
-    return replace(card, cost_per_1k_requests=dict(cost) if cost else None)
 
 
 def render_markdown(cards: Sequence[RouteCard]) -> str:

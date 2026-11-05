@@ -1,12 +1,13 @@
 """Judges: turn (request, candidate, reference) into a win/tie/loss for the candidate.
 
-Two implementations behind one protocol:
-- ``LLMJudge``: asks a real model, through one of Relay's own adapters, with the rubric in
-  ``rubric.py``. A/B order is randomized per call to cancel position bias (judges tend to
-  favor whichever response comes first), and the order is recorded.
-- the simulator's ``MockJudge`` (``relay/simulator/judge.py``): reads the hidden ground truth
-  and adds configurable noise. It is how experiments get a judge whose accuracy is *known*,
-  so the calibration and (later) the evidence engine can be validated against the truth.
+- ``LLMJudge`` (the ``Judge`` protocol's implementation): asks a real model, through one of
+  Relay's own adapters, with the rubric in ``rubric.py``. A/B order is randomized per call to
+  cancel position bias (judges tend to favor whichever response comes first), and the order
+  is recorded.
+- The simulator's ``MockJudge`` (``relay/simulator/judge.py``) is *not* behind that protocol:
+  it judges from the hidden ground truth (which model was secretly correct), not from text,
+  with configurable noise. It is how the evals get a judge whose accuracy is *known*, so the
+  calibration and the evidence engine can be checked against the truth.
 
 The label is always from the **candidate's** point of view:
 - candidate shown as A: ``A_worse`` = loss, ``B_worse`` = win, ``neither`` = tie;

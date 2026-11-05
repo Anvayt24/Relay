@@ -1,6 +1,6 @@
 """Validate the calibration machinery against a judge whose accuracy is *known*.
 
-    python -m relay.evidence.validate --out evals/judge/sim_validation.json     (make eval-judge)
+    python -m evals.judge.validate --out evals/judge/sim_validation.json     (make eval-judge)
 
 Real calibration can't tell you whether the calibration code is right: you don't know the
 judge's true accuracy, that's what you're measuring. The simulator can. It decides, per
@@ -16,26 +16,22 @@ So: build a few hundred pairs from a scenario, give the judge a known sensitivit
    half the losses is ``uncalibrated``.
 
 This is the PRD §10.9 / M7 machinery tested end to end, with ground truth (it is a
-simulation, and says so).
+simulation, and says so). An eval, so it lives in ``evals/`` (moved from ``relay/`` in review);
+its three judges are the evidence evals' (``evals/evidence/sim.py``), not a copy.
 """
 
 import argparse
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from evals.evidence.sim import JUDGES
 from relay.evidence.calibrate import calibrate
-from relay.evidence.pairs import EvalPair, prompt_hash
+from relay.evidence.pairs import EvalPair, offline_comparison, prompt_hash
 from relay.simulator.judge import JudgeParams, MockJudge
 from relay.simulator.quality import WinRate, outcome
 from relay.simulator.scenario import CHEAP, STRONG, ModelProfile, Scenario
-
-# (name, sensitivity, false_loss_rate): a good judge, a mediocre one, a loss-blind one.
-JUDGES = (
-    ("good", 0.90, 0.03),
-    ("mediocre", 0.75, 0.10),
-    ("loss_blind", 0.45, 0.02),
-)
 
 
 def scenario(w: float) -> Scenario:
@@ -66,20 +62,18 @@ def simulate(
         pair_id = f"sim-{i:04d}"
         pairs.append(
             EvalPair(
-                id=pair_id,
+                pair_id=pair_id,
                 prompt_hash=prompt_hash(pair_id),
-                prompt="",
                 cohort="lang=latin,len=short,code=false,tools=false",
+                comparison=offline_comparison(CHEAP, STRONG),
                 candidate_model=CHEAP,
                 reference_model=STRONG,
-                candidate_response="",
-                reference_response="",
                 judge_label="loss" if verdict == "loss" else "tie",
                 judge_model=f"mock-judge-{name}",
                 judge_prompt_version="sim",
                 position_swapped=i % 2 == 0,
                 text_retained=False,
-                ts="2026-01-01T00:00:00+00:00",
+                ts=datetime(2026, 1, 1, tzinfo=UTC),
                 source="sim",
             )
         )
@@ -107,7 +101,7 @@ def simulate(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="python -m relay.evidence.validate", description=__doc__)
+    parser = argparse.ArgumentParser(prog="python -m evals.judge.validate", description=__doc__)
     parser.add_argument("--n", type=int, default=600)
     parser.add_argument(
         "--w", type=float, default=0.80, help="true win-or-tie rate of the candidate"
@@ -115,7 +109,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out")
     args = parser.parse_args()
-    results = [simulate(name, s, f, n=args.n, w=args.w, seed=args.seed) for name, s, f in JUDGES]
+    results = [
+        simulate(name, j.sensitivity, j.false_loss_rate, n=args.n, w=args.w, seed=args.seed)
+        for name, j in JUDGES.items()
+    ]
     report = {
         "what": "simulator validation of the judge calibration (ground truth known)",
         "results": results,

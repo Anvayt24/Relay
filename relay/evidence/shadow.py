@@ -1,5 +1,5 @@
-"""Shadow sampling: judged pairs from live traffic, gathered after the user has their answer
-(PRD §10.2; ADR 0022).
+"""Shadow sampling: judged pairs from live traffic, gathered without delaying the user's
+answer (PRD §10.2; ADR 0022).
 
     Log → [Shadow] → Admission → Cache → Route → Reservation → Provider
 
@@ -19,9 +19,11 @@ stream has ended) and may start a **background task** that:
    provider capacity, breakers and pauses, and is skipped (never queued) when they say no;
 5. judges candidate vs reference and stores the pair (text only for `full`-logging tenants).
 
-**Nothing here can affect the user's response.** It has been sent before ``finalize`` runs;
-every failure in the task is counted and swallowed; pending tasks are capped and the
-overflow is dropped (the cache write-back's pattern).
+**Nothing here can affect the user's response.** ``finalize`` only *starts* the task, it
+never waits on it. For a stream it runs after the last chunk; for a JSON response it runs just
+before the response is written, so the response waits for the task to be created, not for
+the shadow call. Every failure in the task is counted and swallowed; pending tasks are capped
+and the overflow is dropped (the cache write-back's pattern).
 """
 
 import asyncio
@@ -37,16 +39,16 @@ from datetime import UTC, datetime, timedelta
 from prometheus_client import Counter
 
 from relay.admission.store import CapacityStore, StoreUnavailable
-from relay.admission.tokens import output_cap, prompt_tokens, text_tokens
+from relay.admission.tokens import output_cap, text_tokens
 from relay.config.models import ModelSpec
 from relay.config.pricing import NANO_PER_USD, list_cost_nano
 from relay.config.schema import EvidenceSpec, RouteSpec
 from relay.evidence.board import CardBoard, fallback_comparison
 from relay.evidence.cohorts import cohort_of
 from relay.evidence.judge import Judge
-from relay.evidence.pairs import prompt_hash
+from relay.evidence.pairs import EvalPair, prompt_hash
 from relay.evidence.rubric import SYSTEM
-from relay.evidence.store import EvidenceStore, ShadowPair
+from relay.evidence.store import EvidenceStore
 from relay.pipeline.context import RequestContext
 from relay.pipeline.stage import Continue, Outcome, StageResult
 from relay.routing.base import RouteDecision
@@ -256,7 +258,7 @@ class ShadowStage:
         cap = output_cap(ctx.request, call_model)
         estimate = list_cost_nano(
             call_model,
-            Usage(prompt_tokens=prompt_tokens(ctx.request), completion_tokens=cap, total_tokens=0),
+            Usage(prompt_tokens=ctx.prompt_tokens, completion_tokens=cap, total_tokens=0),
         ) + _judge_cost(judge_model, text_tokens(prompt + answer) + cap, spec.judge_max_tokens)
         day = datetime.now(UTC).strftime("%Y%m%d")
         budget_key, res_id = f"shadow:{ctx.route}:{day}", uuid.uuid4().hex
@@ -318,7 +320,7 @@ class ShadowStage:
 
         keep_text = ctx.tenant.logging == "full"
         now = datetime.now(UTC)
-        row = ShadowPair(
+        row = EvalPair(
             pair_id=f"shadow-{uuid.uuid4().hex[:16]}",
             request_id=ctx.request_id,
             route=ctx.route,
@@ -333,6 +335,7 @@ class ShadowStage:
             position_swapped=result.position_swapped,
             text_retained=keep_text,
             ts=now,
+            source="shadow",
             policy_version=ctx.policy_version,
             prompt_text=prompt if keep_text else None,
             candidate_text=candidate if keep_text else None,

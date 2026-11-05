@@ -2,12 +2,16 @@
 
 import json
 import random
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
+from evals.evidence.sim import JUDGES
+from evals.judge.validate import simulate
 from relay.evidence.calibrate import calibrate, w_self
 from relay.evidence.label import (
     RELABEL_FRACTION,
@@ -16,28 +20,30 @@ from relay.evidence.label import (
     create_app,
 )
 from relay.evidence.pairs import EvalPair, read_jsonl, write_jsonl
-from relay.evidence.validate import JUDGES, simulate
+
+REPO = Path(__file__).resolve().parents[2]
 
 
 def pair(
     i: int, *, cohort: str = "c", judge: str | None = "tie", swapped: bool = False
 ) -> EvalPair:
     return EvalPair(
-        id=f"p{i:03d}",
+        pair_id=f"p{i:03d}",
         prompt_hash=f"h{i}",
-        prompt=f"prompt {i}",
         cohort=cohort,
+        comparison="cand_vs_ref",
         candidate_model="cand",
         reference_model="ref",
-        candidate_response=f"CANDIDATE-{i}",
-        reference_response=f"REFERENCE-{i}",
         judge_label=judge,
         judge_model="judge",
         judge_prompt_version="v1",
         position_swapped=swapped,
         text_retained=True,
-        ts="2026-01-01T00:00:00+00:00",
+        ts=datetime(2026, 1, 1, tzinfo=UTC),
         source="pilot",
+        prompt_text=f"prompt {i}",
+        candidate_text=f"CANDIDATE-{i}",
+        reference_text=f"REFERENCE-{i}",
     )
 
 
@@ -52,7 +58,7 @@ def test_queue_interleaves_cohorts_and_adds_blind_relabels() -> None:
     assert len(originals) == 60
     assert len(relabels) == round(60 * RELABEL_FRACTION)
     # Stratified: the first ten items are not all one cohort.
-    cohorts = {p.id: p.cohort for p in pairs}
+    cohorts = {p.pair_id: p.cohort for p in pairs}
     assert {cohorts[q.pair_id] for q in originals[:10]} == {"a", "b"}
     # A relabel always comes after its original, with a gap.
     for r in relabels:
@@ -126,7 +132,7 @@ async def test_labeling_flow_is_blind_resumable_and_logs_candidate_labels(tmp_pa
 # ---------------------------------------------------------------- calibration gate
 def labels_for(pairs: list[EvalPair], humans: list[str]) -> list[dict[str, Any]]:
     return [
-        {"pair_id": p.id, "label": h, "annotator": "me", "is_relabel": False}
+        {"pair_id": p.pair_id, "label": h, "annotator": "me", "is_relabel": False}
         for p, h in zip(pairs, humans, strict=True)
     ]
 
@@ -182,7 +188,10 @@ def test_w_self_is_the_share_of_win_or_tie() -> None:
 
 
 # ---------------------------------------------------------------- validated against the simulator
-@pytest.mark.parametrize(("name", "sensitivity", "false_loss"), JUDGES)
+@pytest.mark.parametrize(
+    ("name", "sensitivity", "false_loss"),
+    [(name, j.sensitivity, j.false_loss_rate) for name, j in JUDGES.items()],
+)
 def test_calibration_recovers_the_simulated_judges_true_accuracy(
     name: str, sensitivity: float, false_loss: float
 ) -> None:
@@ -194,45 +203,35 @@ def test_calibration_recovers_the_simulated_judges_true_accuracy(
 
 def test_pairs_round_trip_through_jsonl(tmp_path: Path) -> None:
     path = tmp_path / "p.jsonl"
-    original = [pair(1), pair(2, judge=None)]
+    live = replace(
+        pair(3),
+        source="shadow",
+        comparison="cheap_vs_strong",
+        request_id="r3",
+        route="default",
+        text_expires_at=datetime(2026, 1, 31, tzinfo=UTC),
+    )  # what `label export` writes: a stored pair, as it is
+    original = [pair(1), pair(2, judge=None), live]
     write_jsonl(original, path)
     assert read_jsonl(path) == original
     assert original[1].judge_loss is None and original[0].judge_loss is False
+    assert build_queue(read_jsonl(path))  # the labeling page queues any of them
 
 
-def test_a_shadow_pair_becomes_a_labeling_item_with_its_own_id() -> None:
-    from datetime import UTC, datetime
-
-    from relay.evidence.label import eval_pair
-    from relay.evidence.store import ShadowPair
-
-    shadow = ShadowPair(
-        pair_id="s1",
-        request_id="r1",
-        route="default",
-        prompt_hash="h",
-        cohort="c",
-        comparison="cheap_vs_strong",
-        candidate_model="mock/cheap",
-        reference_model="mock/strong",
-        judge_label="tie",
-        judge_model="judge",
-        judge_prompt_version="v1",
-        position_swapped=True,
-        text_retained=True,
-        ts=datetime(2026, 11, 4, tzinfo=UTC),
-        prompt_text="q",
-        candidate_text="a",
-        reference_text="b",
-    )
-    item = eval_pair(shadow)
-    # The id is the shadow pair's, so a label made on it imports straight onto that pair.
-    assert (item.id, item.prompt, item.candidate_response, item.reference_response) == (
-        "s1",
-        "q",
-        "a",
-        "b",
-    )
-    assert build_queue([item])  # the labeling page can queue it
-    with pytest.raises(ValueError, match="kept no text"):
-        eval_pair(ShadowPair(**{**shadow.__dict__, "prompt_text": None}))
+def test_jsonl_written_before_the_pair_types_merged_still_reads(tmp_path: Path) -> None:
+    # The committed calibration sets use the old field names, and their reports cite the
+    # files' hashes: they are read as they are, never rewritten.
+    old = {
+        "id": "pilot-0001", "prompt_hash": "h", "prompt": "q", "cohort": "c",
+        "candidate_model": "cand", "reference_model": "ref", "candidate_response": "a",
+        "reference_response": "b", "judge_label": "tie", "judge_model": "j",
+        "judge_prompt_version": "v1", "position_swapped": False, "text_retained": True,
+        "ts": "2026-01-01T00:00:00+00:00", "source": "pilot",
+    }  # fmt: skip
+    path = tmp_path / "old.jsonl"
+    path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+    [p] = read_jsonl(path)
+    texts = (p.prompt_text, p.candidate_text, p.reference_text)
+    assert p.pair_id == "pilot-0001" and texts == ("q", "a", "b")
+    assert p.comparison == "cand_vs_ref" and p.ts == datetime(2026, 1, 1, tzinfo=UTC)
+    assert len(read_jsonl(REPO / "evals" / "judge" / "pilot_pairs.jsonl")) == 30

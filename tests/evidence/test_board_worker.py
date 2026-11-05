@@ -21,10 +21,10 @@ from relay.evidence import worker
 from relay.evidence.board import CardBoard, fallback_comparison
 from relay.evidence.cards import ALL, RouteCard
 from relay.evidence.label import human_labels
+from relay.evidence.pairs import EvalPair
 from relay.evidence.store import (
     HumanLabel,
     MemoryEvidenceStore,
-    ShadowPair,
     card_from_dict,
 )
 from relay.reliability.edges import SeededEdgeStates
@@ -167,9 +167,9 @@ async def test_an_unsafe_card_takes_the_edge_away_from_strict_tenants() -> None:
 
 
 # ------------------------------------------------------------------ the worker
-def shadow_rows(pairs: list[Any]) -> list[ShadowPair]:
+def shadow_rows(pairs: list[Any]) -> list[EvalPair]:
     return [
-        ShadowPair(
+        EvalPair(
             pair_id=p.pair_id,
             request_id=f"req-{p.pair_id}",
             route="safe",
@@ -184,6 +184,7 @@ def shadow_rows(pairs: list[Any]) -> list[ShadowPair]:
             position_swapped=False,
             text_retained=False,
             ts=p.ts,
+            source="shadow",
             policy_version="p",
         )
         for p in pairs

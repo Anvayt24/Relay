@@ -12,7 +12,7 @@ Where the pairs come from:
 - **Production shadow pairs:** ``export`` writes a random sample of a route's unlabeled shadow
   pairs. Only pairs from ``full``-logging tenants keep their text, so only those can be
   labeled; a route with none can't leave ``uncalibrated``.
-- **Pilot or public sets:** ``python -m relay.evidence.pairs build`` and ``pairs import``.
+- **Pilot or public sets:** ``python -m evals.judge.build_pairs build``, then ``import``.
 
 What makes the labels usable as ground truth for calibrating the judge (PRD §10.3):
 - **Blind.** The page never shows model names, and which response is on the left is random
@@ -47,7 +47,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from relay.evidence.pairs import EvalPair, read_jsonl, write_jsonl
-from relay.evidence.store import HumanLabel, PostgresEvidenceStore, ShadowPair
+from relay.evidence.store import HumanLabel, PostgresEvidenceStore
 from relay.settings import Settings
 
 RELABEL_FRACTION = 0.10
@@ -74,7 +74,7 @@ def build_queue(pairs: list[EvalPair], *, seed: int = 0) -> list[QueueItem]:
         for cohort in sorted(by_cohort):
             if by_cohort[cohort]:
                 ordered.append(by_cohort[cohort].pop())
-    queue = [QueueItem(p.id, rng.random() < 0.5, False) for p in ordered]
+    queue = [QueueItem(p.pair_id, rng.random() < 0.5, False) for p in ordered]
 
     n_relabel = max(1, round(len(queue) * RELABEL_FRACTION)) if len(queue) >= 10 else 0
     for original_pos in sorted(rng.sample(range(len(queue)), n_relabel), reverse=True):
@@ -107,7 +107,7 @@ def _append_line(path: Path, line: str) -> None:
 
 
 def create_app(pairs_path: Path, labels_path: Path, *, annotator: str, seed: int = 0) -> FastAPI:
-    pairs = {p.id: p for p in read_jsonl(pairs_path)}
+    pairs = {p.pair_id: p for p in read_jsonl(pairs_path)}
     queue = build_queue(list(pairs.values()), seed=seed)
     done: set[tuple[str, bool]] = set()
     if labels_path.exists():
@@ -132,12 +132,12 @@ def create_app(pairs_path: Path, labels_path: Path, *, annotator: str, seed: int
             return {"finished": True, "progress": progress}
         item = todo[0]
         p = pairs[item.pair_id]
-        cand, ref = p.candidate_response, p.reference_response
+        cand, ref = p.candidate_text or "", p.reference_text or ""
         a, b = (ref, cand) if item.shown_swapped else (cand, ref)
         return {
             "pair_id": item.pair_id,
             "is_relabel": item.is_relabel,
-            "prompt": p.prompt,
+            "prompt": p.prompt_text or "",
             "a": a,
             "b": b,
             "progress": progress,
@@ -240,35 +240,11 @@ def human_labels(rows: list[dict[str, Any]]) -> list[HumanLabel]:
     ]
 
 
-def eval_pair(p: ShadowPair) -> EvalPair:
-    """A shadow pair in the labeling tool's format. Its id is the shadow pair's, so the labels
-    made on it import straight back onto that pair."""
-    if p.prompt_text is None or p.candidate_text is None or p.reference_text is None:
-        raise ValueError(f"pair {p.pair_id} kept no text and can't be labeled")
-    return EvalPair(
-        id=p.pair_id,
-        prompt_hash=p.prompt_hash,
-        prompt=p.prompt_text,
-        cohort=p.cohort,
-        candidate_model=p.candidate_model,
-        reference_model=p.reference_model,
-        candidate_response=p.candidate_text,
-        reference_response=p.reference_text,
-        judge_label=p.judge_label,
-        judge_model=p.judge_model,
-        judge_prompt_version=p.judge_prompt_version,
-        position_swapped=p.position_swapped,
-        text_retained=p.text_retained,
-        ts=p.ts.isoformat(),
-        source=p.source,
-    )
-
-
 async def _export(route: str, limit: int, dsn: str) -> list[EvalPair]:
     store = PostgresEvidenceStore(dsn)
     await store.start()
     try:
-        return [eval_pair(p) for p in await store.labelable_pairs(route, limit)]
+        return await store.labelable_pairs(route, limit)
     finally:
         await store.close()
 

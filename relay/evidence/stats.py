@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import beta, norm
+from scipy.stats import norm
 
 
 @dataclass(frozen=True)
@@ -107,19 +107,6 @@ def bootstrap_ci(
     return lo, hi
 
 
-def clopper_pearson_lower(successes: int, n: int, confidence: float = 0.95) -> float:
-    """One-sided lower confidence bound for a proportion (exact, Clopper-Pearson).
-
-    With zero failures in n trials the bound is ``(1 - confidence) ** (1 / n)``: the "rule of
-    three" behind the PRD's cache sample-size note (about 300 clean hits to show >= 99%).
-    """
-    if n == 0:
-        return math.nan
-    if successes == 0:
-        return 0.0
-    return float(beta.ppf(1 - confidence, successes, n - successes + 1))
-
-
 # ---------------------------------------------------------------- prediction-powered inference
 MIN_PPI_LABELED = 50  # PRD Appendix A guard: no rectifier from fewer than 50 human labels
 
@@ -209,22 +196,21 @@ def ppi_mean_ci(
         raise ValueError(f"PPI needs at least {MIN_PPI_LABELED} human labels, got {n}")
     if big_n == 0:
         raise ValueError("PPI needs judge-only items")
+    if not all(np.isin(a, (0.0, 1.0)).all() for a in (f_unl, y, f_lab)):
+        raise ValueError("PPI here estimates a rate: every label must be 0 or 1")
 
-    var_f = float(np.var(f_lab, ddof=1))
-    if var_f == 0.0:
-        lam = 0.0  # a constant judge carries no information about which items are good
-    else:
-        cov = float(np.cov(y, f_lab, ddof=1)[0, 1])
-        lam = float(np.clip(cov / ((1 + n / big_n) * var_f), 0.0, 1.0))
-
-    residual = y - lam * f_lab
-    theta = lam * float(f_unl.mean()) + float(residual.mean())
-
-    # Pseudo-observations for the rectifier's variance only: (y=1, f=0) and (y=0, f=1).
-    padded = np.concatenate([residual, [1.0, -lam]])
-    var_rect = float(np.var(padded, ddof=1)) / n
-    var_judge = lam**2 * (float(np.var(f_unl, ddof=1)) if big_n > 1 else 0.0) / big_n
-    se = math.sqrt(var_judge + var_rect)
+    # The arithmetic lives in one place, the counts form below: binary labels are fully
+    # described by four counts on the labeled set and two on the judge-only set.
+    yb, fb = y.astype(bool), f_lab.astype(bool)
+    theta_a, se_a, lam_a = ppi_from_counts(
+        int(np.sum(yb & fb)),
+        int(np.sum(yb & ~fb)),
+        int(np.sum(~yb & fb)),
+        int(np.sum(~yb & ~fb)),
+        int(f_unl.sum()),
+        big_n,
+    )
+    theta, se, lam = float(theta_a), float(se_a), float(lam_a)
 
     z = float(norm.ppf(1 - alpha / 2))
     lo, hi = max(0.0, theta - z * se), min(1.0, theta + z * se)
@@ -255,7 +241,7 @@ def ppi_mean_ci(
 # judge-only set by two (N, and how many the judge called win-or-tie). Writing PPI++ in counts
 # makes it vectorizable: a bootstrap replicate is one multinomial draw, and the coverage and
 # detection simulations (evals/evidence) run tens of thousands of estimates as array math.
-# `ppi_from_counts` computes exactly what `ppi_mean_ci` computes (a test checks this).
+# `ppi_mean_ci` is a wrapper over it, so the two can't drift apart.
 
 
 def ppi_from_counts(

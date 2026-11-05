@@ -20,7 +20,8 @@ import numpy as np
 
 from relay.simulator.judge import JudgeParams
 
-# The three judges of relay/evidence/validate.py, plus PRD §10.9 item 3's drifting one.
+# A good judge, a mediocre one and a loss-blind one. evals/judge/validate.py checks that
+# calibration recovers each one's configured sensitivity.
 JUDGES: dict[str, JudgeParams] = {
     "good": JudgeParams(sensitivity=0.90, false_loss_rate=0.03),
     "mediocre": JudgeParams(sensitivity=0.75, false_loss_rate=0.10),

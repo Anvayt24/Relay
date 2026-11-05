@@ -102,7 +102,7 @@ eval-cache:
 
 # Judge calibration machinery vs a simulated judge of known accuracy (Phase 9).
 eval-judge:
-	uv run python -m relay.evidence.validate --out evals/judge/sim_validation.json
+	uv run python -m evals.judge.validate --out evals/judge/sim_validation.json
 
 # The router (PRD FR-7). train-router fits it with scikit-learn and writes the artifact;
 # eval-router measures the *committed* artifact on the frozen data (no model, no network).

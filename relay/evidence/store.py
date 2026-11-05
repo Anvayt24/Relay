@@ -16,54 +16,29 @@ right now", never as a request failure.
 
 import json
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from typing import Any, Protocol
 
 import asyncpg
 
 from relay.evidence.cards import JudgedPair, RouteCard
+from relay.evidence.pairs import EvalPair
 
 
-@dataclass(frozen=True)
-class ShadowPair:
-    """One ``eval_pairs`` row written by the shadow stage."""
-
-    pair_id: str
-    request_id: str
-    route: str
-    prompt_hash: str
-    cohort: str
-    comparison: str
-    candidate_model: str
-    reference_model: str
-    judge_label: str | None
-    judge_model: str
-    judge_prompt_version: str
-    position_swapped: bool
-    text_retained: bool
-    ts: datetime
-    source: str = "shadow"
-    policy_version: str | None = None
-    prompt_text: str | None = None  # only for `full`-logging tenants
-    candidate_text: str | None = None
-    reference_text: str | None = None
-    cost_nano_usd: int = 0
-    # When the three texts above must be deleted (the tenant's retention_days); None: no text.
-    text_expires_at: datetime | None = None
-
-    def judged(self) -> JudgedPair:
-        return JudgedPair(
-            pair_id=self.pair_id,
-            route=self.route,
-            comparison=self.comparison,
-            cohort=self.cohort,
-            judge_label=self.judge_label,
-            judge_model=self.judge_model,
-            judge_prompt_version=self.judge_prompt_version,
-            ts=self.ts,
-            policy_version=self.policy_version,
-        )
+def judged(p: EvalPair) -> JudgedPair:
+    """The part of a pair a card decision reads (no text)."""
+    return JudgedPair(
+        pair_id=p.pair_id,
+        route=p.route or "",
+        comparison=p.comparison,
+        cohort=p.cohort,
+        judge_label=p.judge_label,
+        judge_model=p.judge_model,
+        judge_prompt_version=p.judge_prompt_version,
+        ts=p.ts,
+        policy_version=p.policy_version,
+    )
 
 
 @dataclass(frozen=True)
@@ -76,7 +51,7 @@ class HumanLabel:
 
 
 class EvidenceStore(Protocol):
-    async def write_pairs(self, rows: Sequence[ShadowPair]) -> None: ...
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None: ...
     async def load_pairs(self) -> list[JudgedPair]: ...
     async def import_labels(self, labels: Sequence[HumanLabel]) -> int: ...
     async def load_cards(self) -> list[RouteCard]: ...
@@ -98,7 +73,7 @@ class EvidenceStore(Protocol):
 
 class MemoryEvidenceStore:
     def __init__(self) -> None:
-        self.pairs: list[ShadowPair] = []
+        self.pairs: list[EvalPair] = []
         self.extra: list[JudgedPair] = []  # pairs from elsewhere (calibration sets), for tests
         self.labels: list[HumanLabel] = []
         self.cards: dict[tuple[str, str, str], RouteCard] = {}
@@ -109,7 +84,7 @@ class MemoryEvidenceStore:
     async def close(self) -> None:
         return None
 
-    async def write_pairs(self, rows: Sequence[ShadowPair]) -> None:
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None:
         self.pairs.extend(rows)
 
     async def load_pairs(self) -> list[JudgedPair]:
@@ -118,7 +93,7 @@ class MemoryEvidenceStore:
             if not lab.is_relabel:
                 first.setdefault(lab.pair_id, lab)
         out = []
-        for p in [*(row.judged() for row in self.pairs), *self.extra]:
+        for p in [*(judged(row) for row in self.pairs), *self.extra]:
             human = first.get(p.pair_id)
             if human is not None and p.human_label is None:
                 p = JudgedPair(**{**asdict(p), "human_label": human.label, "human_ts": human.ts})
@@ -155,29 +130,8 @@ class MemoryEvidenceStore:
         return len(expired)
 
 
-_PAIR_COLUMNS = [
-    "pair_id",
-    "request_id",
-    "route",
-    "prompt_hash",
-    "cohort",
-    "comparison",
-    "candidate_model",
-    "reference_model",
-    "judge_label",
-    "judge_model",
-    "judge_prompt_version",
-    "position_swapped",
-    "text_retained",
-    "ts",
-    "source",
-    "policy_version",
-    "prompt_text",
-    "candidate_text",
-    "reference_text",
-    "cost_nano_usd",
-    "text_expires_at",
-]
+# One column per EvalPair field: the type and the table can't drift apart.
+_PAIR_COLUMNS = [f.name for f in fields(EvalPair)]
 
 # The first non-relabel human label of each pair, joined on. Pairs without a route (pilot and
 # public calibration sets) are loaded too: they calibrate the judge (cards.calibration_by_judge).
@@ -241,7 +195,7 @@ class PostgresEvidenceStore:
             raise RuntimeError("PostgresEvidenceStore used before start()")
         return self._pool
 
-    async def write_pairs(self, rows: Sequence[ShadowPair]) -> None:
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None:
         records = [tuple(getattr(r, c) for c in _PAIR_COLUMNS) for r in rows]
         async with self._need_pool().acquire() as conn:
             await conn.copy_records_to_table("eval_pairs", records=records, columns=_PAIR_COLUMNS)
@@ -251,12 +205,28 @@ class PostgresEvidenceStore:
             rows = await conn.fetch(_LOAD_PAIRS)
         return [JudgedPair(**dict(r)) for r in rows]
 
-    async def labelable_pairs(self, route: str, limit: int) -> list[ShadowPair]:
+    async def import_pairs(self, rows: Sequence[EvalPair]) -> int:
+        """Offline pairs (a pilot or public set), idempotently: a pair already stored is
+        skipped, so an import can be re-run. Returns how many were new."""
+        columns = ", ".join(_PAIR_COLUMNS)
+        values = ", ".join(f"${i}" for i in range(1, len(_PAIR_COLUMNS) + 1))
+        query = (
+            f"INSERT INTO eval_pairs ({columns}) VALUES ({values}) ON CONFLICT (pair_id) DO NOTHING"
+        )
+        async with self._need_pool().acquire() as conn, conn.transaction():
+            before = await conn.fetchval("SELECT count(*) FROM eval_pairs")
+            await conn.executemany(
+                query, [tuple(getattr(r, c) for c in _PAIR_COLUMNS) for r in rows]
+            )
+            after = await conn.fetchval("SELECT count(*) FROM eval_pairs")
+        return int(after - before)
+
+    async def labelable_pairs(self, route: str, limit: int) -> list[EvalPair]:
         """A random sample of this route's unlabeled shadow pairs that still have their text,
         for ``python -m relay.evidence.label export``."""
         async with self._need_pool().acquire() as conn:
             rows = await conn.fetch(_LABELABLE_PAIRS, route, limit)
-        return [ShadowPair(**dict(r)) for r in rows]
+        return [EvalPair(**dict(r)) for r in rows]
 
     async def import_labels(self, labels: Sequence[HumanLabel]) -> int:
         # Labels for pairs that aren't in the database are skipped (the foreign key would
@@ -335,7 +305,10 @@ class PostgresEvidenceStore:
 
 
 def card_from_dict(data: dict[str, Any]) -> RouteCard:
-    data = dict(data)
+    # Only the fields RouteCard has now: a card saved by an older version may carry a field
+    # since removed (w_self, cost_per_1k_requests), and the worker rewrites every card anyway.
+    known = {f.name for f in fields(RouteCard)}
+    data = {k: v for k, v in data.items() if k in known}
     data["ci"] = tuple(data["ci"]) if data.get("ci") else None
     data["updated_at"] = datetime.fromisoformat(data["updated_at"])
     return RouteCard(**data)

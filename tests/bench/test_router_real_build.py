@@ -1,5 +1,7 @@
 """Turning judged pairs into the real router dataset (no model, no network)."""
 
+from datetime import UTC, datetime
+
 from evals.router.real_build import gold_by_split, rows_from_pairs
 from relay.evidence.pairs import EvalPair, prompt_hash
 
@@ -7,21 +9,22 @@ from relay.evidence.pairs import EvalPair, prompt_hash
 def pair(i: int, label: str | None) -> EvalPair:
     prompt = f"question {i}"
     return EvalPair(
-        id=f"real-{i:04d}",
+        pair_id=f"real-{i:04d}",
         prompt_hash=prompt_hash(prompt),
-        prompt=prompt,
         cohort="lang=latin,len=short,code=false,tools=false",
+        comparison="groq/gpt-oss-20b_vs_groq/gpt-oss-120b",
         candidate_model="groq/gpt-oss-20b",
         reference_model="groq/gpt-oss-120b",
-        candidate_response="c",
-        reference_response="r",
         judge_label=label,
         judge_model="judge",
         judge_prompt_version="v1",
         position_swapped=False,
         text_retained=True,
-        ts="2026-01-01T00:00:00+00:00",
+        ts=datetime(2026, 1, 1, tzinfo=UTC),
         source="real",
+        prompt_text=prompt,
+        candidate_text="c",
+        reference_text="r",
     )
 
 

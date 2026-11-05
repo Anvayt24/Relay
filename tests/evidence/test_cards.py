@@ -282,3 +282,20 @@ def test_routes_and_comparisons_get_separate_cards() -> None:
         ("r1", "cheap_vs_strong"),
         ("r2", "fallback:x->y"),
     }
+
+
+def test_pairs_after_the_look_window_cannot_change_the_decision() -> None:
+    # ADR 0019: the decision at look k uses only the first k * every judged pairs, so the
+    # same data always replays to the same decision. Pairs arriving after that window (before
+    # the next look) must not move the estimate, the interval or the state, however bad.
+    base = make_pairs(n_judge=800, n_human=200, w=0.97)  # 1,000 judged: look 2 exactly
+    before = cards_for(base)[ALL]
+    assert before.look == 2
+    late = [
+        replace(p, pair_id=f"late-{i}", judge_label="loss", ts=NOW - timedelta(minutes=1))
+        for i, p in enumerate(base[200:599])  # 399 unlabeled all-loss pairs: still look 2
+    ]
+    after = cards_for(base + late)[ALL]
+    assert after.look == 2
+    assert after.n_judge == before.n_judge + len(late)  # counted as available...
+    assert (after.estimate, after.ci, after.state) == (before.estimate, before.ci, before.state)

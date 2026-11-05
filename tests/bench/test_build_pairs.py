@@ -8,18 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from evals.judge.build_pairs import build, make_pair, planned_calls, read_prompts
 from relay.evidence.judge import LLMJudge
-from relay.evidence.pairs import (
-    build,
-    make_pair,
-    planned_calls,
-    prompt_hash,
-    read_jsonl,
-    read_prompts,
-)
+from relay.evidence.pairs import prompt_hash, read_jsonl
 
 from ..conftest import TEST_CONFIG_PATH  # type: ignore[import-not-found]
-from .test_rubric_and_judge import FakeAdapter
+from ..evidence.test_rubric_and_judge import FakeAdapter
 
 
 def test_planned_calls_counts_candidate_reference_and_judge() -> None:
@@ -70,7 +64,7 @@ async def test_make_pair_calls_candidate_reference_and_judge_once_each() -> None
     assert calls == (1, 1, 1)
     assert candidate.requests[0].model == "c-up"
     assert candidate.requests[0].max_tokens == 64
-    assert pair.id == "pilot-0007"
+    assert pair.pair_id == "pilot-0007"
     assert pair.judge_label == "tie"
     assert pair.prompt_hash == prompt_hash("What is 2+2?")
     assert pair.cohort == "lang=latin,len=short,code=false,tools=false"
@@ -79,7 +73,7 @@ async def test_make_pair_calls_candidate_reference_and_judge_once_each() -> None
 async def test_patient_adapter_waits_out_a_rate_limit_then_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from relay.evidence import pairs as pairs_module
+    from evals.judge import build_pairs as pairs_module
     from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
 
     sleeps: list[float] = []
@@ -100,7 +94,7 @@ async def test_patient_adapter_waits_out_a_rate_limit_then_succeeds(
 
 
 async def test_patient_adapter_does_not_retry_other_errors() -> None:
-    from relay.evidence import pairs as pairs_module
+    from evals.judge import build_pairs as pairs_module
     from relay.schemas.errors import ErrorClass, ProviderError
 
     adapter = pairs_module.PatientAdapter(FakeAdapter(ProviderError(ErrorClass.AUTH, "bad key")))
@@ -113,7 +107,7 @@ async def test_patient_adapter_does_not_retry_other_errors() -> None:
 
 # ---------------------------------------------------------------- quotas and resuming (Phase 11)
 async def test_a_daily_quota_stops_the_run_instead_of_waiting_or_retrying() -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError
 
     req = pm.ChatRequest.model_validate(
@@ -127,7 +121,7 @@ async def test_a_daily_quota_stops_the_run_instead_of_waiting_or_retrying() -> N
 
 
 async def test_a_retry_after_too_long_to_sit_through_is_treated_as_a_quota() -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
 
     req = pm.ChatRequest.model_validate(
@@ -140,7 +134,7 @@ async def test_a_retry_after_too_long_to_sit_through_is_treated_as_a_quota() -> 
 
 
 async def test_a_judge_quota_keeps_the_paid_for_answers_as_an_abstention() -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError
 
     judge_adapter = pm.PatientAdapter(
@@ -163,14 +157,14 @@ async def test_a_judge_quota_keeps_the_paid_for_answers_as_an_abstention() -> No
     )
     # Both answers are kept (they cost calls); only the verdict is missing, and `repair` will
     # fill it in later for a single call.
-    assert (pair.candidate_response, pair.reference_response, pair.judge_label) == ("c", "r", None)
+    assert (pair.candidate_text, pair.reference_text, pair.judge_label) == ("c", "r", None)
     assert judge_adapter.quota_hit
 
 
 async def test_resume_skips_prompts_that_are_already_done(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
 
     prompts = tmp_path / "p.jsonl"
     prompts.write_text(
@@ -199,15 +193,15 @@ async def test_resume_skips_prompts_that_are_already_done(
     adapters["mock"] = shared2
     await pm.build(argparse.Namespace(**base, limit=4, resume=True))
     done = read_jsonl(out)
-    assert [p.prompt for p in done] == [f"question {i}" for i in range(4)]
+    assert [p.prompt_text for p in done] == [f"question {i}" for i in range(4)]
     assert len(shared2.requests) == 6  # 3 calls x 2 new prompts, nothing re-paid
-    assert [p.id for p in done] == [f"real-{i:04d}" for i in range(4)]  # stable ids
+    assert [p.pair_id for p in done] == [f"real-{i:04d}" for i in range(4)]  # stable ids
 
 
 async def test_without_a_retry_after_the_wait_backs_off_exponentially_up_to_a_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError
 
     sleeps: list[float] = []
@@ -228,7 +222,7 @@ async def test_without_a_retry_after_the_wait_backs_off_exponentially_up_to_a_ca
 async def test_transient_errors_are_retried_a_few_times_then_raised(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from relay.evidence import pairs as pm
+    from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError
 
     async def no_sleep(_: float) -> None:

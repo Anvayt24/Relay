@@ -147,3 +147,43 @@ def test_empirical_coverage_of_the_nominal_95_percent_interval(
     w: float, n: int, floor: float
 ) -> None:
     assert coverage(w, n) >= floor
+
+
+def _ppi_reference(
+    f_unl: np.ndarray, y: np.ndarray, f_lab: np.ndarray
+) -> tuple[float, float, float]:
+    """PPI++ written straight from the formulas in ``ppi_mean_ci``'s docstring (PRD Appendix
+    A), on arrays, independently of Relay's implementation (which works on counts). An oracle:
+    if both agree, neither has a slip the other doesn't."""
+    n, big_n = len(y), len(f_unl)
+    var_f = float(np.var(f_lab, ddof=1))
+    lam = 0.0
+    if var_f > 0:
+        lam = float(np.clip(np.cov(y, f_lab, ddof=1)[0, 1] / ((1 + n / big_n) * var_f), 0, 1))
+    residual = y - lam * f_lab
+    theta = lam * float(f_unl.mean()) + float(residual.mean())
+    padded = np.concatenate([residual, [1.0, -lam]])  # the two pseudo-observations
+    var_judge = lam**2 * (float(np.var(f_unl, ddof=1)) if big_n > 1 else 0.0) / big_n
+    return theta, math.sqrt(var_judge + float(np.var(padded, ddof=1)) / n), lam
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    seed=st.integers(0, 10_000),
+    n=st.integers(MIN_PPI_LABELED, 300),
+    big_n=st.integers(2, 3000),
+    w=st.floats(0.05, 0.99),
+    agree=st.floats(0.5, 1.0),
+)
+def test_matches_an_independent_array_implementation(
+    seed: int, n: int, big_n: int, w: float, agree: float
+) -> None:
+    rng = np.random.default_rng(seed)
+    y = (rng.random(n) < w).astype(float)
+    f_lab = np.where(rng.random(n) < agree, y, 1 - y)
+    f_unl = (rng.random(big_n) < w).astype(float)
+    theta, se, lam = _ppi_reference(f_unl, y, f_lab)
+    r = ppi_mean_ci(f_unl, y, f_lab)
+    assert r.lam == pytest.approx(lam, abs=1e-12)
+    assert r.se == pytest.approx(se, abs=1e-12)
+    assert r.estimate == pytest.approx(min(1.0, max(0.0, theta)), abs=1e-12)

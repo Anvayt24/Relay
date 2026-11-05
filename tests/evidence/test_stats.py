@@ -55,12 +55,3 @@ def test_bootstrap_is_seeded_and_brackets_the_estimate() -> None:
     point = stats.loss_recall(stats.confusion(human, judge))
     assert a[0] < point < a[1]
     assert point == pytest.approx(0.8)
-
-
-def test_clopper_pearson_rule_of_three() -> None:
-    # Zero failures in n: the bound is 0.05 ** (1/n). About 300 clean hits to show >= 99%.
-    assert stats.clopper_pearson_lower(300, 300) == pytest.approx(0.05 ** (1 / 300), abs=1e-9)
-    assert stats.clopper_pearson_lower(300, 300) > 0.99
-    assert stats.clopper_pearson_lower(299, 300) < stats.clopper_pearson_lower(300, 300)
-    assert stats.clopper_pearson_lower(0, 10) == 0.0
-    assert math.isnan(stats.clopper_pearson_lower(0, 0))

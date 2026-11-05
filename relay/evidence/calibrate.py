@@ -46,7 +46,7 @@ def read_labels(path: Path) -> list[dict[str, Any]]:
 def calibrate(
     pairs: list[EvalPair], labels: list[dict[str, Any]], *, seed: int = 0, n_boot: int = 2000
 ) -> dict[str, Any]:
-    by_id = {p.id: p for p in pairs}
+    by_id = {p.pair_id: p for p in pairs}
     first: dict[str, str] = {}
     relabel: dict[str, str] = {}
     for row in labels:
@@ -89,13 +89,17 @@ def calibrate(
     return out
 
 
+def passes_gate(n: int, kappa: float, loss_recall: float) -> bool:
+    """The M7 gate, the one place it is written: enough labels, and both numbers clear their
+    floor (NaN, from a confusion matrix with an empty row, never passes). Route cards use it
+    too, through ``JudgeCalibration.calibrated``."""
+    return n >= MIN_N and kappa >= KAPPA_MIN and loss_recall >= LOSS_RECALL_MIN
+
+
 def _status(n: int, kappa: float, recall: float) -> str:
     if n < MIN_N:
         return "insufficient_n"
-    ok = not math.isnan(kappa) and not math.isnan(recall)
-    return (
-        "calibrated" if ok and kappa >= KAPPA_MIN and recall >= LOSS_RECALL_MIN else "uncalibrated"
-    )
+    return "calibrated" if passes_gate(n, kappa, recall) else "uncalibrated"
 
 
 def _with_ci(

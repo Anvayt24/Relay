@@ -3,7 +3,7 @@
     python -m evals.router.real_build --pairs evals/router/real/pairs.jsonl \\
         [--labels my_labels.jsonl]
 
-Input is the JSONL written by ``python -m relay.evidence.pairs build`` (candidate = the cheap
+Input is the JSONL written by ``python -m evals.judge.build_pairs build`` (candidate = the cheap
 model, reference = the strong one, a judge's verdict per prompt). Output is the same dataset
 layout the simulated world uses (``data.py``), so ``train.py`` and ``evaluate.py`` work on it
 unchanged with ``--world real``.
@@ -49,12 +49,12 @@ def rows_from_pairs(
             dropped += 1  # an abstention is not a label
             continue
         y_true = None
-        if p.id in human:
-            y_true = int(human[p.id] != "loss")
+        if p.pair_id in human:
+            y_true = int(human[p.pair_id] != "loss")
         rows.append(
             {
                 "id": p.prompt_hash,
-                "text": p.prompt,
+                "text": p.prompt_text or "",
                 "family": p.cohort,  # the cohort key stands in for the simulation's family
                 "instance": p.prompt_hash,
                 "y_true": y_true,

@@ -5,12 +5,14 @@ test_postgres_integration.py."""
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import asyncpg
 import pytest
 
 from relay.evidence.cards import CardSpec, calibration_by_judge, compute_cards
-from relay.evidence.store import HumanLabel, PostgresEvidenceStore, ShadowPair
+from relay.evidence.pairs import EvalPair, read_jsonl
+from relay.evidence.store import HumanLabel, PostgresEvidenceStore
 from relay.policy import control
 from relay.policy.bundle import BundleError, PolicyBundle, RoutePolicy
 from relay.policy.control import ControlError
@@ -21,6 +23,8 @@ from relay.telemetry.migrate import migrate
 from relay.telemetry.postgres import PostgresSink
 
 pytestmark = pytest.mark.integration
+
+PILOT_PAIRS = Path(__file__).resolve().parents[2] / "evals" / "judge" / "pilot_pairs.jsonl"
 
 
 @pytest.fixture
@@ -41,8 +45,8 @@ async def schema() -> AsyncIterator[tuple[asyncpg.Connection, str]]:
         await admin.close()
 
 
-def shadow_pair(i: int, label: str, ts: datetime) -> ShadowPair:
-    return ShadowPair(
+def shadow_pair(i: int, label: str, ts: datetime) -> EvalPair:
+    return EvalPair(
         pair_id=f"s{i}",
         request_id=f"r{i}",
         route="default",
@@ -57,6 +61,7 @@ def shadow_pair(i: int, label: str, ts: datetime) -> ShadowPair:
         position_swapped=False,
         text_retained=i % 2 == 0,
         ts=ts,
+        source="shadow",
         policy_version="2026-10-28.1",
         prompt_text="hi" if i % 2 == 0 else None,
         cost_nano_usd=1000,
@@ -174,8 +179,6 @@ async def test_shadow_pairs_export_for_labeling_and_labels_import_back(
     # production shadow pairs, so a route's rectifier could never reach 50 labels.
     from dataclasses import replace
 
-    from relay.evidence.label import eval_pair
-
     _, dsn = schema
     store = PostgresEvidenceStore(dsn)
     await store.start()
@@ -187,12 +190,13 @@ async def test_shadow_pairs_export_for_labeling_and_labels_import_back(
         ]
         await store.write_pairs(rows)
         await store.import_labels([HumanLabel("s0", "tie", "a1", False, t0)])
-        exported = [eval_pair(p) for p in await store.labelable_pairs("default", 100)]
+        exported = await store.labelable_pairs("default", 100)
         # Only even pairs kept their text, and s0 is already labeled.
-        assert sorted(p.id for p in exported) == ["s2", "s4", "s6", "s8"]
-        assert all(p.prompt == "hi" and p.candidate_response == "a" for p in exported)
+        assert sorted(p.pair_id for p in exported) == ["s2", "s4", "s6", "s8"]
+        assert all(p.prompt_text == "hi" and p.candidate_text == "a" for p in exported)
+        assert exported[0] == next(r for r in rows if r.pair_id == exported[0].pair_id)
         assert await store.labelable_pairs("other-route", 100) == []
-        labels = [HumanLabel(p.id, "loss", "a1", False, t0) for p in exported]
+        labels = [HumanLabel(p.pair_id, "loss", "a1", False, t0) for p in exported]
         assert await store.import_labels(labels) == 4  # the labels land on the shadow pairs
         assert await store.labelable_pairs("default", 100) == []
     finally:
@@ -213,5 +217,26 @@ async def test_expired_text_is_purged_in_postgres(schema: tuple[asyncpg.Connecti
         assert await store.purge_expired_text(t0) == 1
         rows = await conn.fetch("SELECT pair_id, prompt_text FROM eval_pairs ORDER BY pair_id")
         assert [(r["pair_id"], r["prompt_text"]) for r in rows] == [("s0", None), ("s2", "hi")]
+    finally:
+        await store.close()
+
+
+async def test_offline_pairs_import_idempotently(schema: tuple[asyncpg.Connection, str]) -> None:
+    # The pilot set, as committed (old JSONL field names), through the store's import: the
+    # one column list, and a re-run adds nothing.
+    conn, dsn = schema
+    pilot = read_jsonl(PILOT_PAIRS)
+    store = PostgresEvidenceStore(dsn)
+    await store.start()
+    try:
+        assert await store.import_pairs(pilot) == len(pilot)
+        assert await store.import_pairs(pilot) == 0
+        row = await conn.fetchrow(
+            "SELECT route, comparison, source, prompt_text FROM eval_pairs WHERE pair_id = $1",
+            pilot[0].pair_id,
+        )
+        assert row["route"] is None and row["source"] == pilot[0].source
+        assert row["comparison"] == pilot[0].comparison
+        assert row["prompt_text"] == pilot[0].prompt_text
     finally:
         await store.close()
