@@ -20,13 +20,13 @@ their next poll.
 """
 
 import hmac
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from relay.policy import control
-from relay.policy.control import ControlError
+from relay.policy.control import Action, ArgumentError, ControlError
 from relay.policy.poller import PolicyPoller
 from relay.policy.runtime import PolicyRuntime
 from relay.policy.store import PolicyStore, bundle_infos, describe
@@ -63,15 +63,9 @@ class Change(BaseModel):
 async def status(request: Request, _: Annotated[str, Depends(require_admin)]) -> dict[str, Any]:
     store = _store(request)
     runtime: PolicyRuntime = request.app.state.policy_runtime
-    snap = runtime.snapshot()
     return {
         "pointer": describe(await store.pointer()),
-        "serving": {
-            "active": snap.active.version or "yaml",
-            "candidate": snap.candidate.version if snap.candidate else None,
-            "mode": snap.mode,
-            "canary_pct": snap.canary_pct,
-        },
+        "serving": runtime.snapshot().describe(),
         "bundles": bundle_infos(await store.bundles()),
         "events": [
             {"ts": e.ts.isoformat(), "action": e.action, "actor": e.actor, "reason": e.reason,
@@ -79,9 +73,6 @@ async def status(request: Request, _: Annotated[str, Depends(require_admin)]) ->
             for e in await store.events(10)
         ],
     }  # fmt: skip
-
-
-Action = Literal["shadow", "canary", "promote", "rollback", "activate"]
 
 
 @router.post("/{action}")
@@ -93,39 +84,14 @@ async def change(
 ) -> dict[str, Any]:
     store = _store(request)
     try:
-        after = await store.change(
-            action, transition(action, body), actor=actor, reason=body.reason
-        )
+        step = control.transition(action, body.version, body.pct)
+    except ArgumentError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    try:
+        after = await store.change(action, step, actor=actor, reason=body.reason)
     except ControlError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
     poller: PolicyPoller | None = request.app.state.policy_poller
     if poller is not None:
         await poller.refresh()  # this replica at once; the others at their next poll
     return {"pointer": describe(after)}
-
-
-def transition(action: str, body: Change) -> control.Transition:
-    """The pointer transition for an action, with its arguments checked up front."""
-
-    def need_version() -> str:
-        if not body.version:
-            raise HTTPException(status_code=422, detail=f"{action} needs a version")
-        return body.version
-
-    match action:
-        case "shadow":
-            v = need_version()
-            return lambda p: control.shadow(p, v)
-        case "canary":
-            v = need_version()
-            if body.pct is None:
-                raise HTTPException(status_code=422, detail="canary needs pct (1-100)")
-            pct = body.pct
-            return lambda p: control.canary(p, v, pct)
-        case "activate":
-            v = need_version()
-            return lambda p: control.activate(p, v)
-        case "promote":
-            return control.promote
-        case _:
-            return control.rollback

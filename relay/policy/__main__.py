@@ -65,28 +65,17 @@ async def run(args: argparse.Namespace, store: PolicyStore) -> int:
                         route["router"]["artifact_json"] = "<embedded>"
                 _print({"version": found.version, "note": found.note, "routes": content})
             case _:
+                step = control.transition(
+                    args.command, getattr(args, "version", None), getattr(args, "pct", None)
+                )
                 after = await store.change(
-                    args.command, _transition(args), actor=actor, reason=args.reason or ""
+                    args.command, step, actor=actor, reason=args.reason or ""
                 )
                 _print({"pointer": describe(after)})
     except (ControlError, BundleError) as e:
         print(f"refused: {e}")
         return 1
     return 0
-
-
-def _transition(args: argparse.Namespace) -> control.Transition:
-    match args.command:
-        case "shadow":
-            return lambda p: control.shadow(p, args.version)
-        case "canary":
-            return lambda p: control.canary(p, args.version, args.pct)
-        case "activate":
-            return lambda p: control.activate(p, args.version)
-        case "promote":
-            return control.promote
-        case _:
-            return control.rollback
 
 
 def _print(value: Any) -> None:

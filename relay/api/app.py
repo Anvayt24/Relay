@@ -313,7 +313,6 @@ def create_app(
     app.state.log_writer = writer
     app.state.dispatcher = dispatcher
     app.state.cache_stage = cache_stage
-    app.state.evidence_store = evidence_store
     app.state.card_board = board
     app.state.shadow_stage = shadow
     app.state.policy_runtime = runtime

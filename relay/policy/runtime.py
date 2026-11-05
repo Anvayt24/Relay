@@ -29,7 +29,7 @@ import hashlib
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from relay.config.schema import RelayConfig
 from relay.policy.bundle import BundleError, PolicyBundle, artifacts, effective_config
@@ -74,6 +74,15 @@ class PolicySnapshot:
 
     def shadow(self) -> BuiltPolicy | None:
         return self.candidate if self.mode == "shadow" else None
+
+    def describe(self) -> dict[str, Any]:
+        """What this replica serves, as /readyz and the admin API both report it."""
+        return {
+            "active": self.active.version or "yaml",
+            "candidate": self.candidate.version if self.candidate else None,
+            "mode": self.mode,
+            "canary_pct": self.canary_pct,
+        }
 
 
 def canary_arm(version: str, key: str, pct: int) -> Arm:

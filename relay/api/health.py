@@ -32,18 +32,19 @@ async def healthz() -> dict[str, str]:
 @router.get("/readyz")
 async def readyz(request: Request, response: Response) -> dict[str, Any]:
     dependencies = {"postgres": _postgres_status(request), "redis": _redis_status(request)}
-    policy = _policy_status(request)
-    if getattr(request.app.state, "draining", False):
+    state = request.app.state
+    policy = state.policy_runtime.snapshot().describe()
+    if state.draining:
         # Shutting down: take this replica out of the load balancer (PRD §8).
         response.status_code = 503
         return {"status": "draining", "dependencies": dependencies, "policy": policy}
-    board = getattr(request.app.state, "card_board", None)
+    board = state.card_board
     if board is not None and not board.loaded and not board.first_attempt_done:
         # Same rule as the policy: a replica that hasn't read the route cards yet would use
         # every gated edge's seed state, even one a card says is unsafe.
         response.status_code = 503
         return {"status": "loading_cards", "dependencies": dependencies, "policy": policy}
-    poller = getattr(request.app.state, "policy_poller", None)
+    poller = state.policy_poller
     if poller is not None and not poller.first_attempt_done:
         # PRD FR-1: not ready until the policy is loaded. Only the first poll is waited for:
         # if the database is down it fails, and the replica serves the last-known (YAML) policy.
@@ -51,19 +52,6 @@ async def readyz(request: Request, response: Response) -> dict[str, Any]:
         return {"status": "loading_policy", "dependencies": dependencies, "policy": policy}
     # Otherwise always 200 while serving: a degraded dependency is reported, not failed on.
     return {"status": "ready", "dependencies": dependencies, "policy": policy}
-
-
-def _policy_status(request: Request) -> dict[str, Any]:
-    runtime = getattr(request.app.state, "policy_runtime", None)
-    if runtime is None:
-        return {"active": "yaml"}
-    snap = runtime.snapshot()
-    return {
-        "active": snap.active.version or "yaml",
-        "candidate": snap.candidate.version if snap.candidate else None,
-        "mode": snap.mode,
-        "canary_pct": snap.canary_pct,
-    }
 
 
 def _redis_status(request: Request) -> Literal["ok", "degraded", "disabled"]:

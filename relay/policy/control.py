@@ -17,10 +17,15 @@ from datetime import UTC, datetime
 from typing import Literal
 
 CandidateMode = Literal["shadow", "canary"]
+Action = Literal["shadow", "canary", "promote", "rollback", "activate"]
 
 
 class ControlError(ValueError):
     """The operation makes no sense in the current state (e.g. promote with no candidate)."""
+
+
+class ArgumentError(ControlError):
+    """The operation is missing an argument (a client error, unlike a refused transition)."""
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,26 @@ def rollback(p: Pointer) -> Pointer:
     if p.previous_version is None:
         raise ControlError("nothing to roll back to: no previous version")
     return Pointer(active_version=p.previous_version, previous_version=None).stamped()
+
+
+def transition(action: Action, version: str | None = None, pct: int | None = None) -> Transition:
+    """The transition for an action, its arguments checked up front (before the store takes
+    its lock). The CLI and the admin API both call this, so they can't disagree."""
+    if action in ("shadow", "canary", "activate") and not version:
+        raise ArgumentError(f"{action} needs a version")
+    match action:
+        case "shadow":
+            return lambda p: shadow(p, version or "")
+        case "canary":
+            if pct is None:
+                raise ArgumentError("canary needs pct (1-100)")
+            return lambda p: canary(p, version or "", pct)
+        case "activate":
+            return lambda p: activate(p, version or "")
+        case "promote":
+            return promote
+        case "rollback":
+            return rollback
 
 
 def _not_active(p: Pointer, version: str) -> None:

@@ -50,10 +50,6 @@ class PolicyPoller:
         # before it knows the canary exists; startup itself never waits on the database.
         self.first_attempt_done = False
 
-    @property
-    def applied(self) -> Pointer | None:
-        return self._applied
-
     async def refresh(self) -> bool:
         """Apply the current pointer if it changed. True when this replica is up to date."""
         async with self._lock:
