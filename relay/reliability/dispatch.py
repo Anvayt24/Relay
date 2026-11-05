@@ -27,11 +27,11 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from relay.admission.pause import PauseState
 from relay.admission.store import CapacityStore, StoreUnavailable
-from relay.admission.tokens import output_cap, prompt_tokens
+from relay.admission.tokens import output_cap
 from relay.config.models import ModelSpec
 from relay.config.pricing import Pricing
 from relay.config.schema import RelayConfig
@@ -48,11 +48,15 @@ from relay.reliability.retry_budget import RetryBudget
 from relay.schemas.chat import ChatRequest, ChatResponse
 from relay.schemas.errors import ErrorClass, ProviderError, RelayError
 from relay.telemetry import tracing
+from relay.telemetry.metrics import LATENCY_BUCKETS
 
-ATTEMPTS = Counter(
-    "relay_provider_attempts_total",
-    "Upstream calls by outcome (error_class 'ok' = success).",
-    ["provider", "model", "error_class"],
+# One histogram, not a counter beside it: its _count is the number of calls by outcome.
+ATTEMPTS = Histogram(
+    "relay_provider_attempt_seconds",
+    "Each upstream call (a stream: to its first content chunk), by outcome ('ok' or the "
+    "error class). The per-provider p95; _count is the call count.",
+    ["provider", "model", "outcome"],
+    buckets=LATENCY_BUCKETS,
 )
 RETRIES = Counter("relay_retries_total", "Same-model retries sent upstream.", ["provider"])
 FALLBACKS = Counter(
@@ -169,7 +173,7 @@ class ReliableDispatcher:
         if ctx.usage is not None:
             used_by_served = ctx.usage.total_tokens
         elif ctx.forwarded_tokens > 0:
-            used_by_served = prompt_tokens(ctx.request) + ctx.forwarded_tokens
+            used_by_served = ctx.prompt_tokens + ctx.forwarded_tokens
         for hold in holds:
             is_served = served is not None and (hold.provider, hold.model) == (
                 served.provider,
@@ -286,7 +290,7 @@ class ReliableDispatcher:
                 if wait > 0:
                     return wait
             if provider.tpm is not None:
-                prompt = prompt_tokens(ctx.request)
+                prompt = ctx.prompt_tokens
                 taken = min(prompt + output_cap(ctx.request, spec), provider.tpm)
                 wait = await self._store.take(
                     f"ptpm:{spec.provider}",
@@ -359,7 +363,9 @@ class ReliableDispatcher:
                         spec.provider, candidate.model, latency, e.error_class, hop, retry
                     )
                 )
-                ATTEMPTS.labels(spec.provider, candidate.model, e.error_class.value).inc()
+                ATTEMPTS.labels(spec.provider, candidate.model, e.error_class.value).observe(
+                    latency
+                )
                 run.last_error = e
                 run.left_because = e.error_class.value
                 if e.error_class is ErrorClass.MODEL_NOT_FOUND:
@@ -394,7 +400,7 @@ class ReliableDispatcher:
             ctx.attempts.append(
                 ProviderAttempt(spec.provider, candidate.model, latency, None, hop, retry)
             )
-            ATTEMPTS.labels(spec.provider, candidate.model, "ok").inc()
+            ATTEMPTS.labels(spec.provider, candidate.model, "ok").observe(latency)
             if isinstance(result, PrimedStream):
                 # The breaker hears about a stream when it *ends* (ProviderStage.finalize):
                 # a stream that breaks mid-way is a failure, not the success priming saw.

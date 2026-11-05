@@ -77,7 +77,7 @@ class RouterSpec(BaseModel):
     # embedding takes 20-40 ms; 0.5 s leaves room for a cold CPU (on a laptop running Docker, the
     # first requests after minutes of idle took several times longer) while still bounding what
     # a slow embedder can cost a request. A timeout is safe (strong, never an error) and visible:
-    # relay_router_fallback_total{cause="embed_timeout"}.
+    # relay_router_strong_default_total{cause="embed_timeout"}.
     embed_timeout_s: float = Field(default=0.5, gt=0)
 
 

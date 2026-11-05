@@ -1,7 +1,8 @@
 """The Stage protocol and its result types (PRD §9.3).
 
 A request is handled by an ordered list of stages, for example
-log → auth → admission → cache → router → reservation → provider. Each stage either:
+log → admission → cache → route → reservation → provider (authentication runs before them,
+as a FastAPI dependency: the context needs the tenant). Each stage either:
 
 - passes the request on (``Continue``);
 - answers it itself (``ShortCircuit``), e.g. a cache hit or the provider's response;

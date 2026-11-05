@@ -159,7 +159,7 @@ class ReservationStage:
         if decision is None:
             raise RuntimeError("ReservationStage needs a route decision; RouteStage goes first")
         tenant = ctx.tenant
-        prompt = tokens.prompt_tokens(ctx.request)
+        prompt = ctx.prompt_tokens
         needed, nano = self._worst_case(ctx, prompt)
 
         # 1. Tokens per minute. A request bigger than the whole bucket can never fit: that's a

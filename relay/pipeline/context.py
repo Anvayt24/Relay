@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from relay.admission import tokens
 from relay.admission.queue import Slot
 from relay.admission.reservation import Reservation
 from relay.cache.result import CacheResult
@@ -147,6 +148,16 @@ class RequestContext:
     # Phase 14: the request's root span (opened by the request-ID middleware), so the
     # outcome can be written onto it at the end. None when tracing is off.
     span: "Span | None" = None
+    _prompt_tokens: int | None = field(default=None, repr=False)
+
+    @property
+    def prompt_tokens(self) -> int:
+        """The prompt's token estimate (``admission/tokens.py``). Computed on first use and
+        kept: the cache, the reservation, the dispatcher and the shadow stage all need it, and
+        the request never changes."""
+        if self._prompt_tokens is None:
+            self._prompt_tokens = tokens.prompt_tokens(self.request)
+        return self._prompt_tokens
 
     @property
     def served(self) -> ProviderAttempt | None:

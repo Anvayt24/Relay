@@ -54,7 +54,7 @@ def router(
 
 
 def fallback_count(cause: str) -> float:
-    return REGISTRY.get_sample_value("relay_router_fallback_total", {"cause": cause}) or 0.0
+    return REGISTRY.get_sample_value("relay_router_strong_default_total", {"cause": cause}) or 0.0
 
 
 async def decide(r: TrainedRouter, req: Any, config: Any = None) -> Any:

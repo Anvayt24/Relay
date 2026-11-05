@@ -17,7 +17,6 @@ would ignore everything before it.
 from dataclasses import dataclass
 from typing import Literal
 
-from relay.admission.tokens import prompt_tokens
 from relay.cache.keys import user_text
 from relay.config.tenants import TenantCache
 from relay.schemas.chat import ChatRequest
@@ -39,7 +38,9 @@ class Eligibility:
     reason: Reason  # why not, when exact is False
 
 
-def check(req: ChatRequest, policy: TenantCache, *, no_store: bool) -> Eligibility:
+def check(
+    req: ChatRequest, policy: TenantCache, *, no_store: bool, prompt_tokens: int
+) -> Eligibility:
     if not policy.enabled:
         return Eligibility(False, False, "disabled")
     if no_store:
@@ -51,6 +52,6 @@ def check(req: ChatRequest, policy: TenantCache, *, no_store: bool) -> Eligibili
         return Eligibility(False, False, "temperature")
     if req.n not in (None, 1):
         return Eligibility(False, False, "n")
-    if prompt_tokens(req) > policy.max_prompt_tokens:
+    if prompt_tokens > policy.max_prompt_tokens:
         return Eligibility(False, False, "too_large")
     return Eligibility(True, policy.semantic and user_text(req) is not None, "ok")

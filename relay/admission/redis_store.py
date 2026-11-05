@@ -174,9 +174,3 @@ class RedisStore:
         except (RedisError, OSError) as exc:
             raise StoreUnavailable(repr(exc)) from exc
         return pttl / 1000 if pttl > 0 else 0.0
-
-    async def ping(self) -> bool:
-        try:
-            return bool(await self._redis.ping())
-        except (RedisError, OSError):
-            return False

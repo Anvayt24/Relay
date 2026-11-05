@@ -58,10 +58,6 @@ class Finalizer:
         self._ctx = ctx
         self._done = False
 
-    @property
-    def done(self) -> bool:
-        return self._done
-
     async def __call__(self, outcome: Outcome) -> None:
         if self._done:
             return
@@ -72,8 +68,8 @@ class Finalizer:
             except Exception:
                 # Cleanup must never turn a served response into an error, or stop the other
                 # stages from cleaning up. Count it so it shows up on a dashboard.
-                # stdlib logging is synchronous I/O, which is acceptable only because this
-                # path is rare. Per-request rows go through the async LogWriter.
+                # The log line goes through the logging queue (relay.telemetry.logs), so
+                # it never blocks the loop; per-request rows go through the async LogWriter.
                 FINALIZE_ERRORS.labels(stage=stage.name).inc()
                 logger.exception(
                     "finalize failed: stage=%s request_id=%s", stage.name, self._ctx.request_id

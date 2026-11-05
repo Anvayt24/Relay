@@ -9,7 +9,6 @@ from relay.reliability.backoff import full_jitter
 from relay.reliability.deadline import Deadline
 from relay.reliability.policy import (
     BREAKER_FAILURES,
-    BREAKER_IGNORES,
     CONTEXT_FALLBACK,
     FALLBACK_ON,
     RETRY_ONCE,
@@ -34,13 +33,11 @@ def test_rate_limits_are_left_to_the_pause_state() -> None:
     for limit in (ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED):
         assert limit not in RETRY_ONCE
         assert limit not in BREAKER_FAILURES
-        assert limit in BREAKER_IGNORES
         assert can_fall_back(limit)
 
 
 def test_policy_sets_are_consistent() -> None:
     assert RETRY_ONCE <= FALLBACK_ON  # a retry that fails again falls back
-    assert not BREAKER_FAILURES & BREAKER_IGNORES
     assert not FALLBACK_ON & CONTEXT_FALLBACK
     # A broken stream counts toward the breaker, but it can never be a fallback trigger:
     # the client already has part of an answer (FR-5).

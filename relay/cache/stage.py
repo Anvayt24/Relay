@@ -120,7 +120,9 @@ class CacheStage:
 
     async def process(self, ctx: RequestContext) -> StageResult:
         req = ctx.request
-        elig = check(req, ctx.tenant.cache, no_store=ctx.cache_no_store)
+        elig = check(
+            req, ctx.tenant.cache, no_store=ctx.cache_no_store, prompt_tokens=ctx.prompt_tokens
+        )
         if not elig.exact:
             ctx.cache = CacheResult("bypass")
             REQUESTS.labels(layer="none", result="bypass").inc()

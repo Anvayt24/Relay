@@ -403,7 +403,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (cause) (rate(relay_router_fallback_total[$__rate_interval]))",
+          "expr": "sum by (cause) (rate(relay_router_strong_default_total[$__rate_interval]))",
           "legendFormat": "fallback: {{cause}}",
           "refId": "B"
         }

@@ -69,13 +69,9 @@ COST = Counter(
     "strong = counterfactual_strong - list.",
     ["tenant", "provider", "model", "kind"],
 )
-ATTEMPT_SECONDS = Histogram(
-    "relay_provider_attempt_seconds",
-    "Each upstream call (a stream: to its first content chunk), by outcome ('ok' or the "
-    "error class). The per-provider p95.",
-    ["provider", "model", "outcome"],
-    buckets=LATENCY_BUCKETS,
-)
+# Each upstream call is observed where it ends, by the dispatcher (relay_provider_attempt_seconds
+# in relay/reliability/dispatch.py): that also covers judge and shadow calls, which have no
+# request of their own to be recorded with here.
 
 
 def record_request(ctx: "RequestContext", outcome: "Outcome", duration_s: float) -> None:
@@ -96,10 +92,4 @@ def record_request(ctx: "RequestContext", outcome: "Outcome", duration_s: float)
         if ctx.cost.counterfactual_strong_nano is not None:
             COST.labels(ctx.tenant.id, provider, model, "counterfactual_strong").inc(
                 ctx.cost.counterfactual_strong_nano
-            )
-    for attempt in ctx.attempts:
-        if attempt.skipped_reason is None:
-            result = attempt.error_class.value if attempt.error_class else "ok"
-            ATTEMPT_SECONDS.labels(attempt.provider, attempt.model, result).observe(
-                attempt.latency_s
             )

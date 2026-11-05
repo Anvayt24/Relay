@@ -54,9 +54,12 @@ DECISIONS = Counter(
     "Router decisions for the router alias.",
     ["route", "tier", "reason"],  # reason: router | router_fallback (cause is in the next metric)
 )
-FALLBACKS = Counter(
-    "relay_router_fallback_total",
-    "Router decisions that fell back to the strong model, by cause.",
+# Not a dispatch fallback (relay_fallbacks_total: a call failed and the next model served).
+# This is the router itself choosing strong because it could not score the prompt.
+STRONG_DEFAULTS = Counter(
+    "relay_router_strong_default_total",
+    "Router decisions that went to the strong model because the prompt could not be scored, "
+    "by cause.",
     ["cause"],
 )
 SCORE = Histogram(
@@ -65,19 +68,6 @@ SCORE = Histogram(
     buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99],
 )
 DECIDE_SECONDS = Histogram("relay_router_decide_seconds", "Time to make a router decision.")
-
-# Causes a decision can fall back to strong, kept as a closed set (bounded metric labels).
-CAUSES = (
-    "no_artifact",
-    "embedder_off",
-    "embedder_not_ready",
-    "embedding_model_mismatch",
-    "embed_timeout",
-    "embed_busy",
-    "embed_error",
-    "bad_dimension",
-    "cheap_unavailable",
-)
 
 
 class TrainedRouter:
@@ -187,7 +177,7 @@ class TrainedRouter:
         name = strong_name if strong_name in self._available else original.model
         tier = self._config.models[name].tier
         if not shadow:
-            FALLBACKS.labels(cause=cause).inc()
+            STRONG_DEFAULTS.labels(cause=cause).inc()
             DECISIONS.labels(route=ctx.route, tier=tier, reason="router_fallback").inc()
         return RouteDecision(
             tier=tier,

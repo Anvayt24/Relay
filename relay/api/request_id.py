@@ -21,9 +21,10 @@ streaming response sends its body inside that call, the span covers a stream unt
 
 import re
 import uuid
+from contextlib import AbstractContextManager, nullcontext
 
 from opentelemetry.propagate import extract
-from opentelemetry.trace import SpanKind, Status, StatusCode
+from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -69,26 +70,34 @@ class RequestIdMiddleware:
 
         token = REQUEST_ID.set(request_id)
         try:
-            if not tracing.enabled() or scope.get("path") in UNTRACED_PATHS:
+            traced = tracing.enabled() and scope.get("path") not in UNTRACED_PATHS
+            with self._span(scope, request_id) if traced else nullcontext() as span:
+                if span is not None:
+                    scope["state"]["span"] = span  # the context annotates it (LogStage)
 
                 async def send_with_request_id(message: Message) -> None:
                     if message["type"] == "http.response.start":
                         MutableHeaders(scope=message)[HEADER] = request_id
+                        if span is not None:
+                            status = int(message["status"])
+                            span.set_attribute("http.response.status_code", status)
+                            if status >= 500:
+                                span.set_status(Status(StatusCode.ERROR))
                     await send(message)
 
                 await self.app(scope, receive, send_with_request_id)
-                return
-            await self._traced(scope, receive, send, request_id)
         finally:
             REQUEST_ID.reset(token)
 
-    async def _traced(self, scope: Scope, receive: Receive, send: Send, request_id: str) -> None:
+    @staticmethod
+    def _span(scope: Scope, request_id: str) -> AbstractContextManager[Span]:
+        """The request's root span, joined to the caller's trace when it sent a traceparent."""
         carrier = {
             name.decode("latin-1"): value.decode("latin-1")
             for name, value in scope["headers"]
             if name in (b"traceparent", b"tracestate")
         }
-        with tracing.tracer().start_as_current_span(
+        return tracing.tracer().start_as_current_span(
             "relay.request",
             context=extract(carrier),
             kind=SpanKind.SERVER,
@@ -97,16 +106,4 @@ class RequestIdMiddleware:
                 "http.request.method": scope.get("method", ""),
                 "url.path": scope.get("path", ""),
             },
-        ) as span:
-            scope["state"]["span"] = span
-
-            async def send_traced(message: Message) -> None:
-                if message["type"] == "http.response.start":
-                    MutableHeaders(scope=message)[HEADER] = request_id
-                    status = int(message["status"])
-                    span.set_attribute("http.response.status_code", status)
-                    if status >= 500:
-                        span.set_status(Status(StatusCode.ERROR))
-                await send(message)
-
-            await self.app(scope, receive, send_traced)
+        )
