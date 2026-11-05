@@ -279,7 +279,6 @@ async def test_rate_limit_signal_reads_headers() -> None:
     signal = exc.value.signal
     assert signal is not None
     assert (signal.retry_after_s, signal.limit_scope) == (2.5, "account")
-    assert (signal.remaining_requests, signal.remaining_tokens) == (0, 1234)
 
 
 async def test_content_filter_with_no_content_is_an_error() -> None:

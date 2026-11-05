@@ -98,10 +98,6 @@ class ProviderSignal:
     # Providers enforce limits per model or per account/key; pausing the wrong scope either
     # keeps hammering a limit or idles healthy models (PRD FR-2, FR-4).
     limit_scope: Literal["model", "account"] | None = None
-    # What the provider says is left in the current window (x-ratelimit-remaining-*), when it
-    # says. Admission (Phase 6) can slow down *before* the 429 instead of after it.
-    remaining_requests: int | None = None
-    remaining_tokens: int | None = None
 
 
 class ProviderError(Exception):

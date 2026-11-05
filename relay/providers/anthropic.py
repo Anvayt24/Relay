@@ -32,11 +32,14 @@ import httpx
 
 from relay.config.models import LimitScope
 from relay.providers.http import (
+    MALFORMED,
     error_payload,
-    int_header,
-    retry_after,
+    pooled_client,
     sse_events,
+    stream_failure,
+    stream_timeout,
     transport_error,
+    upstream_error,
 )
 from relay.schemas.chat import (
     ChatChunk,
@@ -49,9 +52,12 @@ from relay.schemas.chat import (
     ResponseMessage,
     Usage,
 )
-from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
+from relay.schemas.errors import ErrorClass, ProviderError
 
 API_VERSION = "2023-06-01"  # the Messages API version header Anthropic requires
+# Anthropic requires max_tokens. Relay's dispatcher always sets it (from the model's
+# default_max_tokens); this covers a direct call that didn't.
+DEFAULT_MAX_TOKENS = 1024
 FinishReason = Literal["stop", "length"]
 
 
@@ -63,7 +69,6 @@ class AnthropicAdapter:
         base_url: str,
         api_key: str,
         limit_scope: LimitScope = "model",
-        default_max_tokens: int = 1024,
         connect_timeout_s: float = 5.0,
         read_timeout_s: float = 60.0,
         stream_idle_timeout_s: float = 30.0,
@@ -71,19 +76,14 @@ class AnthropicAdapter:
     ) -> None:
         self.name = name
         self._limit_scope: LimitScope = limit_scope
-        self._default_max_tokens = default_max_tokens
-        self._stream_timeout = httpx.Timeout(
-            connect=connect_timeout_s,
-            read=stream_idle_timeout_s,
-            write=10.0,
-            pool=connect_timeout_s,
+        self._stream_timeout = stream_timeout(
+            connect_timeout_s=connect_timeout_s, idle_timeout_s=stream_idle_timeout_s
         )
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            headers={"x-api-key": api_key, "anthropic-version": API_VERSION},
-            timeout=httpx.Timeout(
-                connect=connect_timeout_s, read=read_timeout_s, write=10.0, pool=connect_timeout_s
-            ),
+        self._client = pooled_client(
+            base_url,
+            {"x-api-key": api_key, "anthropic-version": API_VERSION},
+            connect_timeout_s=connect_timeout_s,
+            read_timeout_s=read_timeout_s,
             transport=transport,
         )
 
@@ -114,7 +114,7 @@ class AnthropicAdapter:
                 ],
                 usage=usage,
             )
-        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        except MALFORMED as exc:
             raise ProviderError(ErrorClass.SERVER_ERROR, f"malformed response: {exc!r}") from exc
 
     # ------------------------------------------------------------------ stream
@@ -144,10 +144,8 @@ class AnthropicAdapter:
                     try:
                         data = json.loads(event.data)
                     except ValueError:
-                        raise ProviderError(
-                            ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR,
-                            f"malformed event: {event.data[:100]!r}",
-                        ) from None
+                        message = f"malformed event: {event.data[:100]!r}"
+                        raise stream_failure(content_seen, message) from None
                     kind = event.event or data.get("type")
 
                     if kind == "message_start":
@@ -181,18 +179,11 @@ class AnthropicAdapter:
                     # ping, content_block_start/stop: nothing to forward.
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=content_seen) from exc
-        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
-            # Valid JSON of the wrong shape: an upstream fault like any other (see openai_compat).
-            raise ProviderError(
-                ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR,
-                f"malformed event: {exc!r}",
-            ) from exc
+        except MALFORMED as exc:
+            raise stream_failure(content_seen, f"malformed event: {exc!r}") from exc
 
         if not stopped:
-            raise ProviderError(
-                ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR,
-                "stream ended before message_stop",
-            )
+            raise stream_failure(content_seen, "stream ended before message_stop")
         yield ChatChunk(
             id=msg_id,
             created=created,
@@ -206,7 +197,7 @@ class AnthropicAdapter:
         system = "\n\n".join(m.content for m in req.messages if m.role == "system")
         body: dict[str, Any] = {
             "model": req.model,
-            "max_tokens": req.max_tokens or self._default_max_tokens,
+            "max_tokens": req.max_tokens or DEFAULT_MAX_TOKENS,
             "messages": [
                 {"role": m.role, "content": m.content} for m in req.messages if m.role != "system"
             ],
@@ -222,17 +213,9 @@ class AnthropicAdapter:
 
     def _error(self, status: int, body: bytes, headers: Mapping[str, str]) -> ProviderError:
         error, blob = error_payload(body)
-        error_class = classify(status, blob)
-        signal = None
-        if error_class in (ErrorClass.RATE_LIMITED, ErrorClass.OVERLOADED):
-            signal = ProviderSignal(
-                retry_after_s=retry_after(headers),
-                limit_scope=self._limit_scope,
-                remaining_requests=int_header(headers, "anthropic-ratelimit-requests-remaining"),
-                remaining_tokens=int_header(headers, "anthropic-ratelimit-tokens-remaining"),
-            )
-        message = f"{self.name} {status}: {str(error.get('message', ''))[:300]}"
-        return ProviderError(error_class, message, signal)
+        return upstream_error(
+            self.name, status, error, classify(status, blob), headers, self._limit_scope
+        )
 
 
 def classify(status: int, blob: str) -> ErrorClass:

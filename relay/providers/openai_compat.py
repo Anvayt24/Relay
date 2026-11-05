@@ -30,11 +30,14 @@ from prometheus_client import Counter
 
 from relay.config.models import LimitScope
 from relay.providers.http import (
+    MALFORMED,
     error_payload,
-    int_header,
-    retry_after,
+    pooled_client,
     sse_events,
+    stream_failure,
+    stream_timeout,
     transport_error,
+    upstream_error,
 )
 from relay.schemas.chat import (
     ChatChunk,
@@ -47,7 +50,7 @@ from relay.schemas.chat import (
     ResponseMessage,
     Usage,
 )
-from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
+from relay.schemas.errors import ErrorClass, ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -85,22 +88,14 @@ class OpenAICompatAdapter:
         self.name = name
         self._limit_scope: LimitScope = limit_scope
         self._max_tokens_param = max_tokens_param
-        self._stream_timeout = httpx.Timeout(
-            connect=connect_timeout_s,
-            read=stream_idle_timeout_s,
-            write=10.0,
-            pool=connect_timeout_s,
+        self._stream_timeout = stream_timeout(
+            connect_timeout_s=connect_timeout_s, idle_timeout_s=stream_idle_timeout_s
         )
-        # One pooled client per adapter, reused by every request: TCP and TLS setup happen
-        # once per connection, not once per call. Built here (no I/O), closed in aclose().
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            # Non-streaming: the provider sends nothing until the whole answer is ready, so
-            # the read timeout must cover the full generation.
-            timeout=httpx.Timeout(
-                connect=connect_timeout_s, read=read_timeout_s, write=10.0, pool=connect_timeout_s
-            ),
+        self._client = pooled_client(
+            base_url,
+            {"Authorization": f"Bearer {api_key}"},
+            connect_timeout_s=connect_timeout_s,
+            read_timeout_s=read_timeout_s,
             transport=transport,
         )
 
@@ -117,7 +112,7 @@ class OpenAICompatAdapter:
             raise self._error(response.status_code, response.content, response.headers)
         try:
             return self._to_response(response.json(), req)
-        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+        except MALFORMED as exc:
             raise ProviderError(ErrorClass.SERVER_ERROR, f"malformed response: {exc!r}") from exc
 
     def _to_response(self, data: dict[str, Any], req: ChatRequest) -> ChatResponse:
@@ -158,20 +153,11 @@ class OpenAICompatAdapter:
                         yield chunk
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=state.content_seen) from exc
-        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
-            # Valid JSON of the wrong shape (a string where an object belongs, a bad number).
-            # As a ProviderError it fails over (or breaks the stream) like any upstream fault,
-            # instead of escaping as a 500 that the breaker never hears about.
-            raise ProviderError(
-                ErrorClass.STREAM_BROKEN if state.content_seen else ErrorClass.SERVER_ERROR,
-                f"malformed stream chunk: {exc!r}",
-            ) from exc
+        except MALFORMED as exc:
+            raise stream_failure(state.content_seen, f"malformed stream chunk: {exc!r}") from exc
 
         if not state.finished:
-            raise ProviderError(
-                ErrorClass.STREAM_BROKEN if state.content_seen else ErrorClass.SERVER_ERROR,
-                "stream ended before a finish_reason",
-            )
+            raise stream_failure(state.content_seen, "stream ended before a finish_reason")
         if state.usage is None:
             USAGE_MISSING.labels(provider=self.name).inc()
         yield state.usage_chunk()
@@ -197,21 +183,9 @@ class OpenAICompatAdapter:
 
     def _error(self, status: int, body: bytes, headers: Mapping[str, str]) -> ProviderError:
         error, blob = error_payload(body)
-        message = f"{self.name} {status}: {str(error.get('message', ''))[:300]}"
-        error_class = classify(status, blob)
-        signal = None
-        if error_class in (
-            ErrorClass.RATE_LIMITED,
-            ErrorClass.QUOTA_EXHAUSTED,
-            ErrorClass.OVERLOADED,
-        ):
-            signal = ProviderSignal(
-                retry_after_s=retry_after(headers),
-                limit_scope=self._limit_scope,
-                remaining_requests=int_header(headers, "x-ratelimit-remaining-requests"),
-                remaining_tokens=int_header(headers, "x-ratelimit-remaining-tokens"),
-            )
-        return ProviderError(error_class, message, signal)
+        return upstream_error(
+            self.name, status, error, classify(status, blob), headers, self._limit_scope
+        )
 
     def _error_from_event(self, payload: dict[str, Any], content_seen: bool) -> ProviderError:
         # An error *inside* a 200 stream (OpenRouter). After content, it can only be
@@ -267,10 +241,8 @@ class _StreamState:
         try:
             payload = json.loads(data)
         except ValueError:
-            raise ProviderError(
-                ErrorClass.STREAM_BROKEN if self.content_seen else ErrorClass.SERVER_ERROR,
-                f"malformed stream chunk: {data[:100]!r}",
-            ) from None
+            message = f"malformed stream chunk: {data[:100]!r}"
+            raise stream_failure(self.content_seen, message) from None
         if not isinstance(payload, dict):
             return []
         if "error" in payload:

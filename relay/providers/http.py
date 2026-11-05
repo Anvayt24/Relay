@@ -1,4 +1,5 @@
-"""Plumbing shared by the HTTP adapters: SSE parsing, rate-limit headers, transport errors.
+"""Plumbing shared by the HTTP adapters: the client, SSE parsing, rate-limit headers, and
+turning what went wrong into a ``ProviderError``.
 
 Everything here is about *reading what a provider sent* defensively. Providers are other
 people's servers: they add comment lines, send errors as lists, cut connections, and
@@ -8,7 +9,6 @@ translation.
 
 import email.utils
 import json
-import math
 import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -16,7 +16,73 @@ from typing import Any
 
 import httpx
 
-from relay.schemas.errors import ErrorClass, ProviderError
+from relay.config.models import LimitScope
+from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
+
+# Valid JSON of the wrong shape (a string where an object belongs, a missing key, a bad
+# number). Caught around all parsing of a provider's body, so it becomes a ProviderError that
+# fails over and feeds the breaker, instead of a 500 the breaker never hears about.
+MALFORMED = (ValueError, KeyError, TypeError, IndexError, AttributeError)
+
+# Errors that say "back off": they carry a signal so admission pauses the right scope (FR-4).
+_LIMITS = frozenset({ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED, ErrorClass.OVERLOADED})
+
+
+def pooled_client(
+    base_url: str,
+    headers: Mapping[str, str],
+    *,
+    connect_timeout_s: float,
+    read_timeout_s: float,
+    transport: httpx.AsyncBaseTransport | None,
+) -> httpx.AsyncClient:
+    """One pooled client per adapter, reused by every request: TCP and TLS setup happen once
+    per connection, not once per call. No I/O here; the adapter closes it in ``aclose()``.
+
+    The default read timeout is for non-streaming calls: the provider sends nothing until
+    the whole answer is ready, so it must cover the full generation."""
+    return httpx.AsyncClient(
+        base_url=base_url,
+        headers=dict(headers),
+        timeout=httpx.Timeout(
+            connect=connect_timeout_s, read=read_timeout_s, write=10.0, pool=connect_timeout_s
+        ),
+        transport=transport,
+    )
+
+
+def stream_timeout(*, connect_timeout_s: float, idle_timeout_s: float) -> httpx.Timeout:
+    """For streams the read timeout is the longest silence between two chunks, not the whole
+    answer: a stream that stalls is cut, a long one that keeps talking is not."""
+    return httpx.Timeout(
+        connect=connect_timeout_s, read=idle_timeout_s, write=10.0, pool=connect_timeout_s
+    )
+
+
+def upstream_error(
+    provider: str,
+    status: int,
+    error: Mapping[str, Any],
+    error_class: ErrorClass,
+    headers: Mapping[str, str],
+    limit_scope: LimitScope,
+) -> ProviderError:
+    """The ``ProviderError`` for an HTTP error response, once classified. Written once for
+    every adapter (found in review: Anthropic's copy sent no signal for a quota error)."""
+    signal = None
+    if error_class in _LIMITS:
+        signal = ProviderSignal(retry_after_s=retry_after(headers), limit_scope=limit_scope)
+    message = f"{provider} {status}: {str(error.get('message', ''))[:300]}"
+    return ProviderError(error_class, message, signal)
+
+
+def stream_failure(content_seen: bool, message: str) -> ProviderError:
+    """A stream that went wrong. Before any content it is an ordinary upstream fault (it can
+    fall back); after it, the answer is incomplete and Relay never switches models, so it is
+    ``stream_broken`` (Appendix B, FR-5)."""
+    return ProviderError(
+        ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR, message
+    )
 
 
 @dataclass(frozen=True)
@@ -78,19 +144,6 @@ def retry_after(headers: Mapping[str, str]) -> float | None:
     except (TypeError, ValueError):
         return None
     return max(0.0, when.timestamp() - time.time())
-
-
-def int_header(headers: Mapping[str, str], *names: str) -> int | None:
-    """The first of ``names`` present as an integer. Providers name the same thing differently
-    (``x-ratelimit-remaining-requests`` vs ``anthropic-ratelimit-requests-remaining``)."""
-    for name in names:
-        value = headers.get(name)
-        if value is not None:
-            try:
-                return math.floor(float(value))
-            except ValueError:
-                continue
-    return None
 
 
 def error_payload(body: bytes) -> tuple[dict[str, Any], str]:

@@ -181,3 +181,17 @@ async def test_error_classification(status: int, message: str, expected: ErrorCl
         await adapter.complete(_request())
     await adapter.aclose()
     assert exc.value.error_class is expected
+
+
+async def test_quota_error_carries_a_pause_signal() -> None:
+    # Found in review: the Anthropic adapter's own copy of the signal code left out quota
+    # errors, so admission never paused the scope that ran out. Both adapters share it now.
+    body = {"type": "error", "error": {"type": "invalid_request_error",
+                                       "message": "Your credit balance is too low."}}  # fmt: skip
+    adapter = _adapter(lambda r: httpx.Response(400, json=body, headers={"retry-after": "30"}))
+    with pytest.raises(ProviderError) as exc:
+        await adapter.complete(_request())
+    await adapter.aclose()
+    assert exc.value.error_class is ErrorClass.QUOTA_EXHAUSTED
+    assert exc.value.signal is not None
+    assert (exc.value.signal.retry_after_s, exc.value.signal.limit_scope) == (30.0, "model")
