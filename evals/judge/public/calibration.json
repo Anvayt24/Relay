@@ -1,0 +1,568 @@
+{
+  "what": "judge calibration on public human-labeled pairs (MT-Bench human judgments, LLMBar); see evals/judge/public/SOURCES.md",
+  "pairs": 840,
+  "unjudged": 0,
+  "judges": {
+    "anthropic/sonnet": {
+      "rubric": [
+        "v2"
+      ],
+      "all": {
+        "n": 416,
+        "abstained": 4,
+        "confusion": {
+          "tp": 168,
+          "fn": 52,
+          "fp": 29,
+          "tn": 167
+        },
+        "human_loss_rate": 0.5288461538461539,
+        "judge_loss_rate": 0.4735576923076923,
+        "kappa": {
+          "value": 0.6117614526684487,
+          "ci_low": 0.53902394443429,
+          "ci_high": 0.6882350228289443
+        },
+        "accuracy": {
+          "value": 0.8052884615384616,
+          "ci_low": 0.7692307692307693,
+          "ci_high": 0.84375
+        },
+        "loss_recall": {
+          "value": 0.7636363636363637,
+          "ci_low": 0.7090909090909091,
+          "ci_high": 0.8169014084507042
+        },
+        "win_recall": {
+          "value": 0.8520408163265306,
+          "ci_low": 0.8028846153846154,
+          "ci_high": 0.9
+        },
+        "annotator_self_kappa": {
+          "n": 0,
+          "kappa": NaN
+        },
+        "position_bias": {
+          "candidate_as_A": 0.46919431279620855,
+          "candidate_as_B": 0.47804878048780486
+        },
+        "judge_models": [
+          "anthropic/sonnet"
+        ],
+        "judge_prompt_versions": [
+          "v2"
+        ],
+        "thresholds": {
+          "kappa_min": 0.6,
+          "loss_recall_min": 0.7,
+          "n_min": 50
+        },
+        "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+        "status": "calibrated"
+      },
+      "by_source": {
+        "mtbench": {
+          "n": 296,
+          "abstained": 4,
+          "confusion": {
+            "tp": 126,
+            "fn": 45,
+            "fp": 26,
+            "tn": 99
+          },
+          "human_loss_rate": 0.5777027027027027,
+          "judge_loss_rate": 0.5135135135135135,
+          "kappa": {
+            "value": 0.5182468366037043,
+            "ci_low": 0.42423119673953313,
+            "ci_high": 0.6131339998165644
+          },
+          "accuracy": {
+            "value": 0.7601351351351351,
+            "ci_low": 0.7128378378378378,
+            "ci_high": 0.8074324324324325
+          },
+          "loss_recall": {
+            "value": 0.7368421052631579,
+            "ci_low": 0.6727272727272727,
+            "ci_high": 0.8012820512820513
+          },
+          "win_recall": {
+            "value": 0.792,
+            "ci_low": 0.7203389830508474,
+            "ci_high": 0.8632478632478633
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.4805194805194805,
+            "candidate_as_B": 0.5492957746478874
+          },
+          "judge_models": [
+            "anthropic/sonnet"
+          ],
+          "judge_prompt_versions": [
+            "v2"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "uncalibrated"
+        },
+        "llmbar": {
+          "n": 120,
+          "abstained": 0,
+          "confusion": {
+            "tp": 42,
+            "fn": 7,
+            "fp": 3,
+            "tn": 68
+          },
+          "human_loss_rate": 0.4083333333333333,
+          "judge_loss_rate": 0.375,
+          "kappa": {
+            "value": 0.8253275109170305,
+            "ci_low": 0.7091790366555589,
+            "ci_high": 0.914965986394558
+          },
+          "accuracy": {
+            "value": 0.9166666666666666,
+            "ci_low": 0.8583333333333333,
+            "ci_high": 0.9583333333333334
+          },
+          "loss_recall": {
+            "value": 0.8571428571428571,
+            "ci_low": 0.75,
+            "ci_high": 0.9473684210526315
+          },
+          "win_recall": {
+            "value": 0.9577464788732394,
+            "ci_low": 0.9078947368421053,
+            "ci_high": 1.0
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.43859649122807015,
+            "candidate_as_B": 0.31746031746031744
+          },
+          "judge_models": [
+            "anthropic/sonnet"
+          ],
+          "judge_prompt_versions": [
+            "v2"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "calibrated"
+        },
+        "llmbar-natural": {
+          "n": 60,
+          "abstained": 0,
+          "confusion": {
+            "tp": 22,
+            "fn": 2,
+            "fp": 1,
+            "tn": 35
+          },
+          "human_loss_rate": 0.4,
+          "judge_loss_rate": 0.38333333333333336,
+          "kappa": {
+            "value": 0.895104895104895,
+            "ci_low": 0.7586206896551724,
+            "ci_high": 1.0
+          },
+          "accuracy": {
+            "value": 0.95,
+            "ci_low": 0.8833333333333333,
+            "ci_high": 1.0
+          },
+          "loss_recall": {
+            "value": 0.9166666666666666,
+            "ci_low": 0.782608695652174,
+            "ci_high": 1.0
+          },
+          "win_recall": {
+            "value": 0.9722222222222222,
+            "ci_low": 0.9069767441860465,
+            "ci_high": 1.0
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.4782608695652174,
+            "candidate_as_B": 0.32432432432432434
+          },
+          "judge_models": [
+            "anthropic/sonnet"
+          ],
+          "judge_prompt_versions": [
+            "v2"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "calibrated"
+        },
+        "llmbar-adversarial": {
+          "n": 60,
+          "abstained": 0,
+          "confusion": {
+            "tp": 20,
+            "fn": 5,
+            "fp": 2,
+            "tn": 33
+          },
+          "human_loss_rate": 0.4166666666666667,
+          "judge_loss_rate": 0.36666666666666664,
+          "kappa": {
+            "value": 0.7558139534883721,
+            "ci_low": 0.5695364238410595,
+            "ci_high": 0.8993288590604026
+          },
+          "accuracy": {
+            "value": 0.8833333333333333,
+            "ci_low": 0.8,
+            "ci_high": 0.95
+          },
+          "loss_recall": {
+            "value": 0.8,
+            "ci_low": 0.6333333333333333,
+            "ci_high": 0.95
+          },
+          "win_recall": {
+            "value": 0.9428571428571428,
+            "ci_low": 0.8571428571428571,
+            "ci_high": 1.0
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.4117647058823529,
+            "candidate_as_B": 0.3076923076923077
+          },
+          "judge_models": [
+            "anthropic/sonnet"
+          ],
+          "judge_prompt_versions": [
+            "v2"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "calibrated"
+        }
+      }
+    },
+    "gemini/flash-lite": {
+      "rubric": [
+        "v1"
+      ],
+      "all": {
+        "n": 420,
+        "abstained": 0,
+        "confusion": {
+          "tp": 169,
+          "fn": 52,
+          "fp": 54,
+          "tn": 145
+        },
+        "human_loss_rate": 0.5261904761904762,
+        "judge_loss_rate": 0.530952380952381,
+        "kappa": {
+          "value": 0.49359601428668926,
+          "ci_low": 0.40515350877192985,
+          "ci_high": 0.5723112128146453
+        },
+        "accuracy": {
+          "value": 0.7476190476190476,
+          "ci_low": 0.7047619047619048,
+          "ci_high": 0.7880952380952381
+        },
+        "loss_recall": {
+          "value": 0.7647058823529411,
+          "ci_low": 0.705607476635514,
+          "ci_high": 0.8207547169811321
+        },
+        "win_recall": {
+          "value": 0.7286432160804021,
+          "ci_low": 0.6649746192893401,
+          "ci_high": 0.788659793814433
+        },
+        "annotator_self_kappa": {
+          "n": 0,
+          "kappa": NaN
+        },
+        "position_bias": {
+          "candidate_as_A": 0.5488372093023256,
+          "candidate_as_B": 0.5121951219512195
+        },
+        "judge_models": [
+          "gemini/flash-lite"
+        ],
+        "judge_prompt_versions": [
+          "v1"
+        ],
+        "thresholds": {
+          "kappa_min": 0.6,
+          "loss_recall_min": 0.7,
+          "n_min": 50
+        },
+        "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+        "status": "uncalibrated"
+      },
+      "by_source": {
+        "mtbench": {
+          "n": 300,
+          "abstained": 0,
+          "confusion": {
+            "tp": 133,
+            "fn": 39,
+            "fp": 50,
+            "tn": 78
+          },
+          "human_loss_rate": 0.5733333333333334,
+          "judge_loss_rate": 0.61,
+          "kappa": {
+            "value": 0.386883438963902,
+            "ci_low": 0.2822003577817532,
+            "ci_high": 0.4882176326084978
+          },
+          "accuracy": {
+            "value": 0.7033333333333334,
+            "ci_low": 0.6533333333333333,
+            "ci_high": 0.75
+          },
+          "loss_recall": {
+            "value": 0.7732558139534884,
+            "ci_low": 0.7093023255813954,
+            "ci_high": 0.8313953488372093
+          },
+          "win_recall": {
+            "value": 0.609375,
+            "ci_low": 0.5299145299145299,
+            "ci_high": 0.6904761904761905
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.620253164556962,
+            "candidate_as_B": 0.5985915492957746
+          },
+          "judge_models": [
+            "gemini/flash-lite"
+          ],
+          "judge_prompt_versions": [
+            "v1"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "uncalibrated"
+        },
+        "llmbar": {
+          "n": 120,
+          "abstained": 0,
+          "confusion": {
+            "tp": 36,
+            "fn": 13,
+            "fp": 4,
+            "tn": 67
+          },
+          "human_loss_rate": 0.4083333333333333,
+          "judge_loss_rate": 0.3333333333333333,
+          "kappa": {
+            "value": 0.6982248520710058,
+            "ci_low": 0.5588235294117646,
+            "ci_high": 0.8147576412472984
+          },
+          "accuracy": {
+            "value": 0.8583333333333333,
+            "ci_low": 0.7916666666666666,
+            "ci_high": 0.9166666666666666
+          },
+          "loss_recall": {
+            "value": 0.7346938775510204,
+            "ci_low": 0.6097560975609756,
+            "ci_high": 0.85
+          },
+          "win_recall": {
+            "value": 0.9436619718309859,
+            "ci_low": 0.8823529411764706,
+            "ci_high": 0.9868421052631579
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.3508771929824561,
+            "candidate_as_B": 0.31746031746031744
+          },
+          "judge_models": [
+            "gemini/flash-lite"
+          ],
+          "judge_prompt_versions": [
+            "v1"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "calibrated"
+        },
+        "llmbar-natural": {
+          "n": 60,
+          "abstained": 0,
+          "confusion": {
+            "tp": 19,
+            "fn": 5,
+            "fp": 1,
+            "tn": 35
+          },
+          "human_loss_rate": 0.4,
+          "judge_loss_rate": 0.3333333333333333,
+          "kappa": {
+            "value": 0.7857142857142858,
+            "ci_low": 0.6069868995633187,
+            "ci_high": 0.9314285714285715
+          },
+          "accuracy": {
+            "value": 0.9,
+            "ci_low": 0.8166666666666667,
+            "ci_high": 0.9666666666666667
+          },
+          "loss_recall": {
+            "value": 0.7916666666666666,
+            "ci_low": 0.6086956521739131,
+            "ci_high": 0.9523809523809523
+          },
+          "win_recall": {
+            "value": 0.9722222222222222,
+            "ci_low": 0.9069767441860465,
+            "ci_high": 1.0
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.391304347826087,
+            "candidate_as_B": 0.2972972972972973
+          },
+          "judge_models": [
+            "gemini/flash-lite"
+          ],
+          "judge_prompt_versions": [
+            "v1"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "calibrated"
+        },
+        "llmbar-adversarial": {
+          "n": 60,
+          "abstained": 0,
+          "confusion": {
+            "tp": 17,
+            "fn": 8,
+            "fp": 3,
+            "tn": 32
+          },
+          "human_loss_rate": 0.4166666666666667,
+          "judge_loss_rate": 0.3333333333333333,
+          "kappa": {
+            "value": 0.6117647058823529,
+            "ci_low": 0.3870967741935485,
+            "ci_high": 0.8152709359605911
+          },
+          "accuracy": {
+            "value": 0.8166666666666667,
+            "ci_low": 0.7166666666666667,
+            "ci_high": 0.9166666666666666
+          },
+          "loss_recall": {
+            "value": 0.68,
+            "ci_low": 0.48148148148148145,
+            "ci_high": 0.8636363636363636
+          },
+          "win_recall": {
+            "value": 0.9142857142857143,
+            "ci_low": 0.8157894736842105,
+            "ci_high": 1.0
+          },
+          "annotator_self_kappa": {
+            "n": 0,
+            "kappa": NaN
+          },
+          "position_bias": {
+            "candidate_as_A": 0.3235294117647059,
+            "candidate_as_B": 0.34615384615384615
+          },
+          "judge_models": [
+            "gemini/flash-lite"
+          ],
+          "judge_prompt_versions": [
+            "v1"
+          ],
+          "thresholds": {
+            "kappa_min": 0.6,
+            "loss_recall_min": 0.7,
+            "n_min": 50
+          },
+          "note": "kappa is low when losses are rare even if accuracy is high (kappa paradox).",
+          "status": "uncalibrated"
+        }
+      }
+    }
+  },
+  "human_agreement_mtbench": {
+    "n": 148,
+    "kappa": 0.5387230827351718,
+    "accuracy": 0.777027027027027
+  },
+  "gate": {
+    "kappa_min": 0.6,
+    "loss_recall_min": 0.7,
+    "n_min": 50
+  },
+  "caveat": "Calibrated on public data (2023-era models and author-built adversarial pairs), not on Relay's own traffic. MT-Bench votes are preferences, while the rubric asks whether one answer is materially worse.",
+  "sha256": {
+    "labels": "953b699e3956c40ccc1a7b5be01502886adcd918d2647756a7c89568b5953c20",
+    "extra_votes": "7a64fbe611b8eaa8403dce786571a7ce6df1a42c7599cdfec8cad07e7873767d",
+    "runs/anthropic-sonnet-v2.jsonl": "0e3b23d18d7639ab6825d963291e1e033da2bb492d40e1b65cf4a72e68c6acad",
+    "runs/gemini-flash-lite-v1.jsonl": "c9af6783dd29faa7e059b2356911983d48e756054cc1c38b41c954f32c471473"
+  }
+}
