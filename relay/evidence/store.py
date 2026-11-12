@@ -124,6 +124,7 @@ class MemoryEvidenceStore:
                 prompt_text=None,
                 candidate_text=None,
                 reference_text=None,
+                judge_reason=None,
                 text_retained=False,
                 text_expires_at=None,
             )
@@ -264,7 +265,8 @@ class PostgresEvidenceStore:
         async with self._need_pool().acquire() as conn:
             status = await conn.execute(
                 "UPDATE eval_pairs SET prompt_text = NULL, candidate_text = NULL,"
-                " reference_text = NULL, text_retained = false, text_expires_at = NULL"
+                " reference_text = NULL, judge_reason = NULL, text_retained = false,"
+                " text_expires_at = NULL"
                 " WHERE text_expires_at <= $1",
                 now,
             )

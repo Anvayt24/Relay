@@ -235,3 +235,14 @@ def test_jsonl_written_before_the_pair_types_merged_still_reads(tmp_path: Path) 
     assert p.pair_id == "pilot-0001" and texts == ("q", "a", "b")
     assert p.comparison == "cand_vs_ref" and p.ts == datetime(2026, 1, 1, tzinfo=UTC)
     assert len(read_jsonl(REPO / "evals" / "judge" / "pilot_pairs.jsonl")) == 30
+
+
+async def test_expired_text_takes_the_judges_reason_with_it() -> None:
+    from relay.evidence.store import MemoryEvidenceStore
+
+    store = MemoryEvidenceStore()
+    old = replace(pair(1), judge_reason="quotes the prompt",
+                  text_expires_at=datetime(2026, 1, 1, tzinfo=UTC))  # fmt: skip
+    await store.write_pairs([old])
+    assert await store.purge_expired_text(datetime(2026, 2, 1, tzinfo=UTC)) == 1
+    assert store.pairs[0].judge_reason is None and store.pairs[0].prompt_text is None

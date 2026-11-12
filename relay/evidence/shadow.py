@@ -342,6 +342,7 @@ class ShadowStage:
             reference_text=reference if keep_text else None,
             cost_nano_usd=spent,
             text_expires_at=now + timedelta(days=ctx.tenant.retention_days) if keep_text else None,
+            judge_reason=result.reason if keep_text else None,
         )
         try:
             await self._store.write_pairs([row])

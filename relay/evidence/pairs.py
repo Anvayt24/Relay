@@ -46,8 +46,11 @@ class EvalPair:
     candidate_text: str | None = None
     reference_text: str | None = None
     cost_nano_usd: int = 0
-    # When the three texts must be deleted (the tenant's retention_days); None: no deadline.
+    # When the texts must be deleted (the tenant's retention_days); None: no deadline.
     text_expires_at: datetime | None = None
+    # The judge's reason (rubric v2). Text like the three above: it can quote the request, so
+    # it is kept only when they are, and deleted with them.
+    judge_reason: str | None = None
 
     @property
     def judge_loss(self) -> bool | None:

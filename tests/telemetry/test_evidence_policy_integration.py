@@ -240,3 +240,27 @@ async def test_offline_pairs_import_idempotently(schema: tuple[asyncpg.Connectio
         assert row["prompt_text"] == pilot[0].prompt_text
     finally:
         await store.close()
+
+
+async def test_the_judges_reason_is_stored_and_purged_with_the_text(
+    schema: tuple[asyncpg.Connection, str],
+) -> None:
+    # Migration 0012: the reason can quote the prompt, so retention deletes it with the text.
+    from dataclasses import replace
+
+    conn, dsn = schema
+    store = PostgresEvidenceStore(dsn)
+    await store.start()
+    try:
+        t0 = datetime.now(UTC)
+        old = replace(shadow_pair(0, "loss", t0), judge_reason="B ignores the question",
+                      text_expires_at=t0 - timedelta(seconds=1))  # fmt: skip
+        await store.write_pairs([old])
+        stored = await conn.fetchval("SELECT judge_reason FROM eval_pairs WHERE pair_id = 's0'")
+        assert stored == "B ignores the question"
+        assert await store.purge_expired_text(t0) == 1
+        row = await conn.fetchrow("SELECT judge_reason, prompt_text, judge_label FROM eval_pairs")
+        assert (row["judge_reason"], row["prompt_text"]) == (None, None)
+        assert row["judge_label"] == "loss"  # the verdict stays
+    finally:
+        await store.close()

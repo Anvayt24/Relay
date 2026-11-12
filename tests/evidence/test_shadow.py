@@ -431,3 +431,26 @@ async def test_a_replica_is_not_ready_until_it_has_read_the_cards() -> None:
                 break
             await asyncio.sleep(0.01)
     assert r.status_code == 200
+
+
+class ReasonedJudge(ScriptedJudge):
+    async def judge(self, *, request: str, candidate: str, reference: str) -> JudgeResult:
+        return JudgeResult("loss", False, "judge/model", "v2", reason="it quotes 2+2 wrongly")
+
+
+async def test_the_judges_reason_is_kept_with_the_text() -> None:
+    # The reason can quote the prompt, so it is text: kept only for `full` logging.
+    app, store, _, _ = build(evidence_config(), judge=ReasonedJudge())
+    async with serving(app) as c:
+        await c.post(CHAT, json=body())
+    [pair] = store.pairs
+    assert pair.judge_reason == "it quotes 2+2 wrongly"
+
+
+async def test_metadata_only_tenants_keep_no_reason() -> None:
+    cfg = evidence_config(tenant={"logging": "metadata_only"})
+    app, store, _, _ = build(cfg, judge=ReasonedJudge())
+    async with serving(app) as c:
+        await c.post(CHAT, json=body())
+    [pair] = store.pairs
+    assert pair.judge_reason is None and pair.judge_label == "loss"

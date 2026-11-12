@@ -18,7 +18,7 @@ import random
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
-from relay.evidence.rubric import JUDGE_PROMPT_VERSION, Verdict, build_messages, parse_verdict
+from relay.evidence.rubric import JUDGE_PROMPT_VERSION, Verdict, build_messages, parse_judgment
 from relay.providers.base import ProviderAdapter
 from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ProviderError
@@ -36,6 +36,8 @@ class JudgeResult:
     # What the judge call(s) used, as reported by the provider; None when nothing was reported
     # (or the call failed). The shadow budget is settled against it.
     usage: Usage | None = None
+    # Why, in the judge's words (rubric v2); None for v1, a failed call, or no reason given.
+    reason: str | None = None
 
 
 class Judge(Protocol):
@@ -59,6 +61,10 @@ class LLMJudge:
         rng: random.Random | None = None,
         both_orders: bool = False,
         max_tokens: int = 16,
+        prompt_version: str = JUDGE_PROMPT_VERSION,
+        # 0 for the most repeatable verdicts. None sends no temperature at all: Claude Sonnet
+        # 5.5 rejects any non-default value with a 400.
+        temperature: float | None = 0.0,
     ) -> None:
         self._adapter = adapter
         self._model = model
@@ -66,6 +72,8 @@ class LLMJudge:
         self._rng = rng or random.Random()
         self._both_orders = both_orders
         self._max_tokens = max_tokens
+        self._version = prompt_version
+        self._temperature = temperature
         self.calls = 0  # real calls made: the pilot's call-budget guard reads this
 
     async def judge(self, *, request: str, candidate: str, reference: str) -> JudgeResult:
@@ -80,32 +88,32 @@ class LLMJudge:
         if second.label is None:
             return replace(second, usage=usage)
         if first.label != second.label:
-            return JudgeResult("tie", swapped, self._name, JUDGE_PROMPT_VERSION, first.raw, usage)
+            return JudgeResult("tie", swapped, self._name, self._version, first.raw, usage)
         return replace(first, usage=usage)
 
     async def _once(
         self, request: str, candidate: str, reference: str, swapped: bool
     ) -> JudgeResult:
         a, b = (reference, candidate) if swapped else (candidate, reference)
-        messages = build_messages(request, a, b)
+        messages = build_messages(request, a, b, version=self._version)
+        body: dict[str, object] = {
+            "model": self._model,
+            "messages": messages,
+            "max_tokens": self._max_tokens,
+        }
+        if self._temperature is not None:
+            body["temperature"] = self._temperature
         self.calls += 1
         try:
-            response = await self._adapter.complete(
-                ChatRequest.model_validate(
-                    {
-                        "model": self._model,
-                        "messages": messages,
-                        "temperature": 0,
-                        "max_tokens": self._max_tokens,
-                    }
-                )
-            )
+            response = await self._adapter.complete(ChatRequest.model_validate(body))
         except ProviderError:
-            return JudgeResult(None, swapped, self._name, JUDGE_PROMPT_VERSION)
+            return JudgeResult(None, swapped, self._name, self._version)
         text = response.choices[0].message.content or ""
-        verdict = parse_verdict(text)
+        verdict, reason = parse_judgment(text)
         label = None if verdict is None else label_from_verdict(verdict, candidate_is_a=not swapped)
-        return JudgeResult(label, swapped, self._name, JUDGE_PROMPT_VERSION, text, response.usage)
+        return JudgeResult(
+            label, swapped, self._name, self._version, text, response.usage, reason=reason
+        )
 
 
 def _sum_usage(a: Usage | None, b: Usage | None) -> Usage | None:
