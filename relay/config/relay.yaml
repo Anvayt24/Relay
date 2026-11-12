@@ -47,6 +47,13 @@ models:
   # short tier). A tenth of Haiku 4.5's $1/$5. Cache prices not confirmed: default to price_in.
   anthropic/haiku: {provider: anthropic, provider_model: claude-haiku-5-5, tier: strong,
                     price_in: 0.10, price_out: 0.50, context_window: 200000}
+  # Judge candidates (evals/judge/public): calibrated against human labels before any route may
+  # use one as its judge. Not in any route's aliases. Gemini Flash's price is from aggregators
+  # (verify); Sonnet 5.5's is Anthropic's list price.
+  gemini/flash: {provider: gemini, provider_model: gemini-3.5-flash, tier: strong,
+                 price_in: 1.50, price_out: 9.00, billing: free}
+  anthropic/sonnet: {provider: anthropic, provider_model: claude-sonnet-5-5, tier: strong,
+                     price_in: 2.00, price_out: 10.00}
 
 # `cache.semantic_threshold` is MEASURED, never guessed: it is the smallest cosine similarity
 # that reached >= 99% precision on the tune split of the cache eval, with the lexical guard on
