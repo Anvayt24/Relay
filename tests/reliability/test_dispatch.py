@@ -301,7 +301,7 @@ async def test_a_cancelled_probe_gives_its_slot_back() -> None:
     clock = FakeClock()
     d = dispatcher(providers(primary=_Hangs()), clock=clock)
     _half_open(d, clock)
-    task = asyncio.create_task(d.run(make_ctx(route="none")))
+    task = asyncio.create_task(d.run(make_ctx(route="none", clock=clock)))
     await asyncio.sleep(0.01)
     assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes - 1
     task.cancel()
@@ -315,7 +315,7 @@ async def test_an_unexpected_exception_gives_the_probe_slot_back() -> None:
     d = dispatcher(providers(primary=_Raises()), clock=clock)
     _half_open(d, clock)
     with pytest.raises(RuntimeError):
-        await d.run(make_ctx(route="none"))
+        await d.run(make_ctx(route="none", clock=clock))
     assert _free_probe_slots(d) == FALLBACK_CONFIG.reliability.breaker_half_open_probes
 
 
@@ -353,7 +353,7 @@ async def test_unused_provider_tokens_are_refunded() -> None:
     clock = FakeClock()
     store = MemoryStore(clock=clock)  # a frozen clock: buckets never refill by themselves
     d = build_dispatcher(config, dict(providers()), store=store, clock=clock)  # type: ignore[arg-type]
-    ctx = make_ctx(route="none", config=config)
+    ctx = make_ctx(route="none", config=config, clock=clock)
     assert isinstance(await d.run(ctx), ChatResponse)
     [hold] = ctx.provider_holds
     assert hold.tokens > 1000  # prompt + the 1024 output cap
