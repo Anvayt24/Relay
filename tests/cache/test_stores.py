@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 import asyncpg
 import pytest
 
-from relay.cache.embed import HashEmbedder, cosine
+from relay.cache.embed import HashEmbedder
 from relay.cache.entry import CachedReply
 from relay.cache.exact import CacheUnavailable, MemoryExactStore, RedisExactStore
 from relay.cache.semantic import MemorySemanticStore, PgVectorStore, SemanticStore
@@ -97,8 +97,10 @@ async def contract(store: SemanticStore) -> None:
     near = await vec("capital of france today please")
     hit = await store.lookup(ns, near, threshold=0.7, max_tokens=100, guard="g")
     assert hit is not None and hit.reply.text == "Paris"  # its own namespace's entry only
+    stored = await vec("capital of france today")
+    # Vectors are L2-normalized, so cosine similarity is their dot product.
     assert hit.similarity == pytest.approx(
-        cosine(near, await vec("capital of france today")), abs=1e-3
+        sum(x * y for x, y in zip(near, stored, strict=True)), abs=1e-3
     )
     # Below the threshold: a miss.
     assert await store.lookup(ns, await vec("sourdough bread recipe"), threshold=0.7,
@@ -175,10 +177,10 @@ async def test_pgvector_sweep_deletes_only_expired_entries(pg_store: PgVectorSto
 
 @pytest.mark.integration
 async def test_pgvector_connections_scan_the_index_iteratively(pg_store: PgVectorStore) -> None:
-    # Found in review: filtered HNSW lookups could miss a namespace's only match, and ADR 0015
-    # claimed a setting no code made. Every connection of the store must have it. (A test that
-    # makes Postgres pick the HNSW plan on purpose needs thousands of rows and planner flags;
-    # this checks the setting itself.)
+    # Found in review: filtered HNSW lookups could miss a namespace's only match, because the
+    # setting that prevents it was documented but never applied. Every connection of the store
+    # must have it. (A test that makes Postgres pick the HNSW plan on purpose needs thousands
+    # of rows and planner flags; this checks the setting itself.)
     pool = pg_store._need_pool()
     async with pool.acquire() as conn:
         assert await conn.fetchval("SHOW hnsw.iterative_scan") == "strict_order"

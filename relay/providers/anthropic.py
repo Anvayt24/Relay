@@ -1,4 +1,4 @@
-"""Adapter for Anthropic's Messages API (PRD FR-2: "expect most adapter bugs there").
+"""Adapter for Anthropic's Messages API, whose format differs most from OpenAI's.
 
 The translation, both ways:
 
@@ -73,8 +73,12 @@ class AnthropicAdapter:
         read_timeout_s: float = 60.0,
         stream_idle_timeout_s: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        thinking_off: frozenset[str] = frozenset(),
     ) -> None:
         self.name = name
+        # Upstream model ids sent with hidden reasoning switched off (ModelSpec.thinking). The
+        # adapter is per provider, so this is a per-model switch kept here, not on the request.
+        self._thinking_off = thinking_off
         self._limit_scope: LimitScope = limit_scope
         self._stream_timeout = stream_timeout(
             connect_timeout_s=connect_timeout_s, idle_timeout_s=stream_idle_timeout_s
@@ -209,6 +213,9 @@ class AnthropicAdapter:
             "stop_sequences": req.stop,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
+        if req.model in self._thinking_off:
+            # Sonnet 5.5 refuses {"type": "disabled"}; "between_tools" is how it is turned off.
+            body["thinking"] = {"type": "between_tools"}
         return body
 
     def _error(self, status: int, body: bytes, headers: Mapping[str, str]) -> ProviderError:

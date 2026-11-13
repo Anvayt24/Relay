@@ -1,14 +1,12 @@
-"""RequestContext: the one mutable object that travels through every stage (PRD §9.3).
+"""RequestContext: the one mutable object that travels through every stage.
 
 Stages communicate only through it. For example, RouteStage writes ``decision`` and
 ProviderStage reads it. That makes the data flow between stages explicit and testable: build
 a context, run one stage, assert on the context.
 
-Fields arrive in the phase that first needs them; ``cache`` (PRD §9.3) comes in Phase 10.
-
-``started_at``, ``received_at``, ``ttft_s``, ``usage``, ``pricing`` and ``cost`` are not in
-§9.3. They are what the log row (Phase 2), the cost (Phase 5) and the reservation reconcile
-(Phase 6) need, and those run in finalize(), after the response is gone.
+``started_at``, ``received_at``, ``ttft_s``, ``usage``, ``pricing`` and ``cost`` are filled in
+as the request runs. They are what the log row, the cost and the reservation reconcile need, and
+those run in finalize(), after the response is gone.
 """
 
 import time
@@ -41,7 +39,7 @@ class ProviderAttempt:
 
     The list on the context is the request's full history: retries, fallback hops, and the
     candidates skipped without a call (paused, breaker open, ...). It becomes the
-    ``attempts`` table (PRD §9.4).
+    ``attempts`` table.
     """
 
     provider: str
@@ -60,7 +58,7 @@ class ProviderAttempt:
 
 @dataclass
 class ProviderHold:
-    """Provider TPM taken for one upstream call (FR-4: admitted against the serving provider's
+    """Provider TPM taken for one upstream call (admitted against the serving provider's
     capacity). Taken at the worst case (prompt + output cap); the unused part is refunded when
     the request ends (ProviderStage.finalize)."""
 
@@ -81,10 +79,10 @@ class RequestContext:
     cohort: str | None  # X-Relay-Cohort after the tenant's allowlist: a tag, "other", or None
     policy_version: str
     # Monotonic clock, not wall clock: time.time() can jump (NTP, DST), and a deadline that
-    # moves backwards never fires. Bounds every retry and fallback hop (ADR 0008).
+    # moves backwards never fires. Bounds every retry and fallback hop.
     deadline: float
     stream: bool
-    # Phase 13 (ADR 0023). The policy that serves this request: the active one, or the
+    # The policy that serves this request: the active one, or the
     # candidate for a request in the canary arm (the YAML policy when no bundle is active).
     # Every stage reads route policy from it, so a swap mid-request can't mix two policies.
     applied: "BuiltPolicy"
@@ -105,32 +103,34 @@ class RequestContext:
     # for JSON, the stream body for SSE) turns it into `cost`.
     pricing: Pricing | None = None
     cost: Cost | None = None
-    # Phase 6 admission. Each is cleared by the finalize that releases it, so nothing is
+    # Admission state. Each is cleared by the finalize that releases it, so nothing is
     # released twice.
     admission_slot: Slot | None = None
+    # The address a per-IP limit counts this request against (relay/api/client_ip.py).
+    client_ip: str = "unknown"
     queue_wait_s: float = 0.0
     reservation: Reservation | None = None
     # Content tokens sent to the client so far (streams; same estimator as reservations).
     # When a stream ends without a usage report (client gone, upstream broke), this is what
     # the reservation is settled against: providers bill tokens generated before an abort.
     forwarded_tokens: int = 0
-    # Phase 7. True when a fallback edge without evidence (undecided/unsafe) served the
-    # request: X-Relay-Degraded (ADR 0010).
+    # True when a fallback edge without evidence (undecided/unsafe) served the
+    # request: X-Relay-Degraded.
     degraded: bool = False
     # A stream's breaker verdict is only known when the stream ends, so the permit for the
-    # serving attempt waits here for ProviderStage.finalize (ADR 0009).
+    # serving attempt waits here for ProviderStage.finalize.
     breaker_permit: Permit | None = None
-    # Phase 10. The client asked not to cache (X-Relay-Cache: no-store).
+    # The client asked not to cache (X-Relay-Cache: no-store).
     cache_no_store: bool = False
     cache: CacheResult | None = None
-    # The prompt embedding, computed once for the cache and reused by the router (Phase 11).
+    # The prompt embedding, computed once for the cache and reused by the router.
     embedding: list[float] | None = None
     # Why that embedding could not be computed (embed_timeout | embed_busy | embed_error), so
     # the router doesn't wait a second time for an embedder that just failed.
     embed_failure: str | None = None
-    # Phase 11. Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
+    # Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
     # and, when the trained router decided, its score. Logged for every request: a later phase
-    # samples the score band that would move under a lower threshold (PRD §10.2 item 5).
+    # samples the score band that would move under a lower threshold.
     router_reason: str | None = None
     router_score: float | None = None
     # What the model said, collected as it is produced, so the cache can store it when the
@@ -145,7 +145,7 @@ class RequestContext:
     shadow_policy_version: str | None = None
     shadow_tier: str | None = None
     shadow_score: float | None = None
-    # Phase 14: the request's root span (opened by the request-ID middleware), so the
+    # The request's root span (opened by the request-ID middleware), so the
     # outcome can be written onto it at the end. None when tracing is off.
     span: "Span | None" = None
     _prompt_tokens: int | None = field(default=None, repr=False)

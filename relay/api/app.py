@@ -12,7 +12,7 @@ I/O and no background tasks. Anything that needs a running event loop or opens c
 (the DB pool, the log writer's task) is started in ``lifespan`` and stopped there in reverse
 order.
 
-**Shutdown drain** (PRD §8). On SIGTERM uvicorn stops accepting connections and waits for
+**Shutdown drain**. On SIGTERM uvicorn stops accepting connections and waits for
 in-flight requests (bounded by ``--timeout-graceful-shutdown``) before running lifespan
 shutdown. The lifespan then marks the app as draining (``/readyz`` answers 503), waits up to
 ``shutdown_drain_s`` for any streams still open, and only then flushes the log writer and
@@ -23,11 +23,17 @@ Run it with ``uvicorn relay.api.app:create_app --factory``.
 """
 
 import logging
+import secrets
+import time
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
+import httpx
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from prometheus_client import start_http_server
 
 from relay import __version__
 from relay.admission.pause import PauseState
@@ -37,9 +43,12 @@ from relay.admission.resilient import ResilientStore
 from relay.admission.stages import AdmissionStage, ReservationStage
 from relay.admission.store import CapacityStore, MemoryStore
 from relay.api import admin, health, routes
+from relay.api.body_limit import BodyLimitMiddleware
+from relay.api.client_ip import parse_trusted_proxies
 from relay.api.errors import install_error_handlers
 from relay.api.request_id import RequestIdMiddleware
 from relay.api.streaming import OpenStreams
+from relay.auth.bootstrap import LostPepperError, ensure_first_key, first_key_notice
 from relay.auth.service import Authenticator
 from relay.auth.store import CachedKeyStore, KeyStore, MemoryKeyStore, PostgresKeyStore
 from relay.cache.embed import Embedder, FastEmbedder, HashEmbedder
@@ -50,6 +59,9 @@ from relay.config.loader import DEFAULT_CONFIG, load_config
 from relay.config.models import ModelSpec, available_models
 from relay.config.schema import RelayConfig
 from relay.config.tenants import Tenant
+from relay.demo import routes as demo_routes
+from relay.demo.chaos import ChaosPanel
+from relay.demo.routes import SECRET_HEADER
 from relay.evidence.board import CardBoard
 from relay.evidence.judge import Judge, LLMJudge
 from relay.evidence.shadow import JudgeFactory, ShadowStage
@@ -100,7 +112,7 @@ def create_app(
     policy_store: PolicyStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
-    # Observability (Phase 14): JSON or text logs with request and trace ids, and tracing
+    # Observability: JSON or text logs with request and trace ids, and tracing
     # when an OTLP endpoint is configured (otherwise OTel's no-op tracer).
     configure_logging(settings)
     tracer_provider = setup_tracing(settings)
@@ -116,7 +128,7 @@ def create_app(
                 for name, spec in config.providers.items()
                 if spec.kind == "mock"
             },
-            **build_adapters(keys, settings, config.providers),
+            **build_adapters(keys, settings, config.providers, models=config.models),
         }
     models = available_models(config.models, providers)
     auth_disabled_tenant, authenticator = _auth(settings, config, key_store)
@@ -157,7 +169,7 @@ def create_app(
     embedder = embedder or _embedder(settings, config)
     cache_stage = CacheStage(exact=exact_cache, semantic=semantic_cache, embedder=embedder)
 
-    # The evidence engine (Phase 12), only when some route has an `evidence:` section. Cards
+    # The evidence engine, only when some route has an `evidence:` section. Cards
     # come from the worker through the store; the board makes gated edges follow them, falling
     # back to the YAML seed state for an edge with no card yet.
     seeded = SeededEdgeStates(config)
@@ -180,7 +192,7 @@ def create_app(
         if any(t.evidence_sampling == "on" for t in config.tenants.values()):
             shadow = ShadowStage(
                 models,
-                judges=judges or _judge_factory(providers, models),
+                judges=judges or _judge_factory(providers, models, config),
                 store=evidence_store,
                 budget=store,
                 board=board,
@@ -204,8 +216,8 @@ def create_app(
     if shadow is not None:
         shadow.bind(dispatcher.run, dispatcher.available)
 
-    # Policy bundles (Phase 13). The YAML policy serves until a bundle is activated; with a
-    # database, every replica follows the pointer there (ADRs 0023, 0024). One factory builds
+    # Policy bundles. The YAML policy serves until a bundle is activated; with a
+    # database, every replica follows the pointer there. One factory builds
     # the router for the YAML policy (artifacts from disk) and for every bundle (embedded).
     def router_factory(cfg: RelayConfig, arts: Mapping[str, RouterArtifact | None]) -> Router:
         if not any(r.router is not None for r in cfg.routes.values()):
@@ -252,6 +264,8 @@ def create_app(
             logger.warning("RELAY_DATABASE_URL not set: request logs are kept in memory only")
         if authenticator is not None:
             await authenticator.store.start()
+            if key_store is None:  # a store passed in (tests) is the caller's to fill
+                await _first_run(settings, config)
         await store.start()
         await exact_cache.start()
         if semantic_cache is not None:
@@ -268,10 +282,21 @@ def create_app(
         if poller is not None:
             poller.start()  # its first poll runs now; /readyz waits for it
         writer.start()
+        chaos = _chaos_panel(app, settings, providers)
+        app.state.chaos = chaos
+        metrics_server = None
+        if settings.metrics_port is not None:
+            # prometheus_client runs this on its own thread, so it never touches the loop.
+            metrics_server, _ = start_http_server(settings.metrics_port)
         try:
             yield
         finally:
+            if metrics_server is not None:
+                metrics_server.shutdown()
+                metrics_server.server_close()
             app.state.draining = True
+            if chaos is not None:
+                await chaos.stop()
             await _drain(app, settings.shutdown_drain_s)
             await cache_stage.drain()
             if poller is not None:
@@ -300,9 +325,20 @@ def create_app(
             if tracer_provider is not None:
                 tracing.shutdown()  # flush queued spans, bounded
 
-    app = FastAPI(title="Relay", version=__version__, lifespan=lifespan)
+    # The interactive API docs describe the whole surface to anyone who can reach it, so a
+    # production deployment does not serve them.
+    show_docs = settings.env != "prod"
+    app = FastAPI(
+        title="Relay",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if show_docs else None,
+        redoc_url="/redoc" if show_docs else None,
+        openapi_url="/openapi.json" if show_docs else None,
+    )
     # app.state is how request handlers reach process-wide objects without globals.
     app.state.settings = settings
+    app.state.trusted_proxies = parse_trusted_proxies(settings.trusted_proxies)
     app.state.pipeline = pipeline
     app.state.config = config
     app.state.capacity_store = store
@@ -320,19 +356,25 @@ def create_app(
     app.state.policy_poller = poller
     app.state.draining = False
     app.state.open_streams = OpenStreams()  # RelayStreamingResponse keeps this current
+    app.state.chaos = None  # the demo's chaos panel: built in the lifespan, only when asked for
+    app.state.demo_secret = secrets.token_urlsafe(24)  # the panel's own requests carry this
 
     install_error_handlers(app)
+    # Added first, so it sits *inside* the request-ID middleware: its 413 carries the id.
+    app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_body_bytes)
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health.router)
     app.include_router(routes.router)
     app.include_router(admin.router)
+    app.include_router(demo_routes.router)
+    _mount_page(app, settings)
     return app
 
 
 def _cache_backends(
     settings: Settings, config: RelayConfig
 ) -> tuple[ExactStore, SemanticStore | None]:
-    """The cache's storage, chosen from what is configured (PRD §8 degradation matrix: every
+    """The cache's storage, chosen from what is configured (every
     layer is optional and fails open).
 
     - exact: Redis when configured, else in-process;
@@ -369,11 +411,22 @@ def _embedder(settings: Settings, config: RelayConfig) -> Embedder | None:
 
 
 def _judge_factory(
-    providers: Mapping[str, ProviderAdapter], models: Mapping[str, ModelSpec]
+    providers: Mapping[str, ProviderAdapter],
+    models: Mapping[str, ModelSpec],
+    config: RelayConfig,
 ) -> JudgeFactory:
-    """The route's bulk judge (PRD §10.3), built once per model name and reused. None when the
-    judge's provider has no adapter (no key): the shadow stage then skips the comparison."""
+    """The route's bulk judge, built once per model name and reused. None when the
+    judge's provider has no adapter (no key): the shadow stage then skips the comparison.
+
+    The rubric version and temperature come from the route's evidence section. The config
+    check guarantees that routes sharing a judge model and output cap agree on them, so
+    (name, max_tokens) identifies one way of calling the judge."""
     built: dict[tuple[str, int], Judge] = {}
+    calling = {
+        (r.evidence.judge, r.evidence.judge_max_tokens): r.evidence
+        for r in config.routes.values()
+        if r.evidence is not None
+    }
 
     def factory(name: str, max_tokens: int) -> Judge | None:
         spec = models.get(name)
@@ -381,11 +434,14 @@ def _judge_factory(
         if spec is None or adapter is None:
             return None
         if (name, max_tokens) not in built:
+            evidence = calling[name, max_tokens]
             built[name, max_tokens] = LLMJudge(
                 adapter,
                 model=spec.provider_model,
                 name=name,
                 max_tokens=max_tokens,
+                prompt_version=evidence.judge_prompt_version,
+                temperature=evidence.judge_temperature,
             )
         return built[name, max_tokens]
 
@@ -401,8 +457,8 @@ def _load_artifacts(settings: Settings, config: RelayConfig) -> dict[str, Router
     """Each routed route's artifact, read from disk (paths relative to the config file).
 
     A missing or invalid artifact is logged loudly and recorded as None: that route's
-    relay/auto then routes to strong (PRD: "router artifact missing/corrupt -> strong") and the
-    gateway still starts."""
+    relay/auto then routes to strong, the quality-safe default, and the gateway still
+    starts."""
     artifacts: dict[str, RouterArtifact | None] = {}
     for name, spec in ((n, r.router) for n, r in config.routes.items() if r.router is not None):
         path = _config_dir(settings) / spec.artifact
@@ -435,6 +491,75 @@ def _mock_provider(settings: Settings) -> MockProvider:
             f"unknown RELAY_SIM_SCENARIO {settings.sim_scenario!r}; choose from {sorted(PRESETS)}"
         )
     return MockProvider(simulator=Simulator.from_scenario(scenario, seed=settings.sim_seed))
+
+
+def _mount_page(app: FastAPI, settings: Settings) -> None:
+    """Serve the demo page at `/` (web/), after every API route so it never shadows one. A
+    missing page is fine: an API-only image, or a source checkout where it was never built."""
+    if settings.ui != "on":
+        return
+    web = Path(settings.web_dir or "web")
+    if (web / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=web, html=True), name="page")
+
+
+def _chaos_panel(
+    app: FastAPI, settings: Settings, providers: Mapping[str, ProviderAdapter]
+) -> ChaosPanel | None:
+    """The demo's chaos panel (relay/demo/chaos.py): only when asked for, and only against an
+    in-process simulator. It never touches a real provider."""
+    if settings.demo_chaos != "on":
+        return None
+    simulator = next((p.simulator for p in providers.values() if isinstance(p, MockProvider)), None)
+    if simulator is None or not settings.sim_scenario:
+        logger.warning("RELAY_DEMO_CHAOS=on needs RELAY_SIM_SCENARIO (a simulator): chaos is off")
+        return None
+
+    async def send_relay() -> tuple[bool, float]:
+        # Relay's side of the comparison goes through the whole app, as a client would.
+        started = time.monotonic()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://relay.internal") as c:
+            r = await c.post(
+                "/v1/demo/chat?mode=chaos",
+                json={
+                    "model": "relay/auto",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": 20,
+                },
+                headers={SECRET_HEADER: app.state.demo_secret},
+            )
+        return r.status_code == 200, time.monotonic() - started
+
+    return ChaosPanel(simulator, send_relay)
+
+
+async def _first_run(settings: Settings, config: RelayConfig) -> None:
+    """The first API key, and the lost-pepper check (relay/auth/bootstrap.py). A database that
+    cannot be reached does not stop Relay starting: it only means neither could be done."""
+    if not settings.database_url or settings.key_pepper is None:
+        return
+    mint = settings.bootstrap_key and settings.bootstrap_tenant in config.tenants
+    if settings.bootstrap_key and not mint:
+        logger.warning(
+            "RELAY_BOOTSTRAP_TENANT %r is not in the config: no first API key is created",
+            settings.bootstrap_tenant,
+        )
+    try:
+        key = await ensure_first_key(
+            settings.database_url,
+            pepper=settings.key_pepper.get_secret_value(),
+            tenant=settings.bootstrap_tenant,
+            pepper_is_new=settings.key_pepper_generated,
+            mint=mint,
+        )
+    except LostPepperError as exc:
+        raise RuntimeError(str(exc)) from exc
+    except (OSError, asyncpg.PostgresError) as exc:
+        logger.warning("could not check for a first API key (%s: %s)", type(exc).__name__, exc)
+        return
+    if key is not None:
+        print(first_key_notice(key, settings.bootstrap_tenant), flush=True)
 
 
 def _auth(
@@ -476,3 +601,7 @@ def _capacity_store(settings: Settings) -> CapacityStore:
         raise ValueError("RELAY_REPLICA_COUNT > 1 needs RELAY_REDIS_URL for shared limits")
     logger.warning("RELAY_REDIS_URL not set: admission state is in-process (one replica only)")
     return MemoryStore()
+
+
+# create_app does no I/O and starts no background tasks. It's a normal (non-async) function that
+# runs before the loop is doing real work. Anything that needs the loop goes in the lifespan.

@@ -195,3 +195,26 @@ async def test_quota_error_carries_a_pause_signal() -> None:
     assert exc.value.error_class is ErrorClass.QUOTA_EXHAUSTED
     assert exc.value.signal is not None
     assert (exc.value.signal.retry_after_s, exc.value.signal.limit_scope) == (30.0, "model")
+
+
+# ---------------------------------------------------------------- thinking switch
+async def test_thinking_is_switched_off_only_for_the_models_configured_that_way() -> None:
+    # Claude Sonnet 5.5 thinks by default, billed as output; "between_tools" turns it off.
+    # Another model on the same provider (a fallback, say) must be left as it was.
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=_message())
+
+    adapter = AnthropicAdapter(
+        base_url="http://anthropic.test",
+        api_key="k",
+        transport=httpx.MockTransport(handler),
+        thinking_off=frozenset({"claude"}),
+    )
+    await adapter.complete(_request())
+    await adapter.complete(ChatRequest.model_validate(_request().model_dump() | {"model": "other"}))
+    await adapter.aclose()
+    assert seen[0]["thinking"] == {"type": "between_tools"}
+    assert "thinking" not in seen[1]

@@ -1,9 +1,9 @@
-# Relay's default config (PRD §9.5). Validated at startup: an invalid file stops Relay.
+# Relay's default config. Validated at startup: an invalid file stops Relay.
 # Override with RELAY_CONFIG_PATH. API keys are never here: only the *names* of env vars.
 #
-# Prices are LIST prices, USD per 1M tokens, even for free-tier models (FR-9). Model IDs and
+# Prices are LIST prices, USD per 1M tokens, even for free-tier models. Model IDs and
 # prices were checked on 2026-10-20 from partly third-party sources: verify before relying on
-# them, because free tiers and prices change often (PRD §13).
+# them, because free tiers and prices change often.
 
 price_table_version: "2026-10-20"
 
@@ -32,8 +32,8 @@ models:
   # published for this one, so list cost reads 0.
   openrouter/lfm-2.5-2.6b-free: {provider: openrouter, provider_model: "liquid/lfm-2.5-2.6b:free",
                                  tier: cheap, price_in: 0, price_out: 0, billing: free}
-  # A free OpenRouter model used as a judge in the Phase 11 real run (a different family from the
-  # gpt-oss candidates, ADR 0014). No route uses it. Free model IDs come and go: check
+  # A free OpenRouter model that served as a judge in a real run (a different family from the
+  # gpt-oss candidates). No route uses it. Free model IDs come and go: check
   # GET https://openrouter.ai/api/v1/models for ":free" ids before use.
   openrouter/gemma-4-31b-free: {provider: openrouter, provider_model: "google/gemma-4-31b-it:free",
                                 tier: cheap, price_in: 0, price_out: 0, billing: free,
@@ -52,8 +52,10 @@ models:
   # (verify); Sonnet 5.5's is Anthropic's list price.
   gemini/flash: {provider: gemini, provider_model: gemini-3.5-flash, tier: strong,
                  price_in: 1.50, price_out: 9.00, billing: free}
+  # thinking: off, because it thinks by default and bills that as output; a judge's verdict
+  # and one-line reason need none (evals/judge/public: calibrated with thinking off).
   anthropic/sonnet: {provider: anthropic, provider_model: claude-sonnet-5-5, tier: strong,
-                     price_in: 2.00, price_out: 10.00}
+                     price_in: 2.00, price_out: 10.00, thinking: off}
 
 # `cache.semantic_threshold` is MEASURED, never guessed: it is the smallest cosine similarity
 # that reached >= 99% precision on the tune split of the cache eval, with the lexical guard on
@@ -62,24 +64,39 @@ routes:
   default:            # simulator models: works with no provider keys at all
     aliases: {relay/cheap: mock/cheap, relay/strong: mock/strong, relay/auto: mock/strong}
     cache: {semantic_threshold: 0.8625, lexical_guard: true}
-    # relay/auto is decided by a trained router (PRD FR-7): cheap when its estimated
+    # relay/auto is decided by a trained router: cheap when its estimated
     # P(cheap answer is win-or-tie) >= threshold, else strong. The threshold is MEASURED on a
     # validation split (evals/router, `make eval-router`) and a test fails if this route is set
-    # below it. The artifact is trained on a SIMULATED world (ADR 0018): it demonstrates the
+    # below it. The artifact is trained on a SIMULATED world: it demonstrates the
     # machinery on the simulator models, not real-world savings. A missing or invalid artifact
     # routes relay/auto to strong. `live` and `demo` have no router: their judge is uncalibrated.
     router: {artifact: ../routing/artifacts/sim-world.json, threshold: 0.82}
   live:
     aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
     cache: {semantic_threshold: 0.8625, lexical_guard: true}
+    # Ready for evidence: it runs only once a tenant on this route sets `evidence_sampling: on`
+    # (none does). The judge is Claude Sonnet 5.5 on rubric v2, the one pair calibrated against
+    # human labels (evals/judge/public/DECISION_RULE.md; a test checks it stays that way).
+    # 600 tokens hold a reason and a verdict; Sonnet takes no temperature.
+    evidence: {judge: anthropic/sonnet, judge_prompt_version: v2, judge_temperature: null,
+               judge_max_tokens: 600}
     fallback_graph:   # edges start `undecided` (no evidence yet): usable only by allow_degraded
       groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free}, {to: anthropic/haiku}]
       groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free}]
-  demo:               # free models only: no paid edges anywhere (PRD §13)
+  demo:               # free models only: no paid edges anywhere
     aliases: {relay/cheap: groq/gpt-oss-20b, relay/strong: groq/gpt-oss-120b, relay/auto: groq/gpt-oss-120b}
+    # Seeded `safe`: the tenant is `strict`, and a strict tenant is refused an `undecided` edge,
+    # so without this the demo would answer 503 the first time a provider failed over.
     fallback_graph:
-      groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free}]
-      groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free}]
+      groq/gpt-oss-120b: [{to: openrouter/lfm-2.5-2.6b-free, seed_state: safe}]
+      groq/gpt-oss-20b:  [{to: openrouter/lfm-2.5-2.6b-free, seed_state: safe}]
+  # The public demo's chaos route: simulator models only, so it costs nothing and
+  # needs no provider key. It is the chaos panel's primary with a fallback, which Relay's side
+  # of the comparison runs through. (The demo's router view uses the `default` route above.)
+  demo-chaos:
+    aliases: {relay/auto: mock/strong}
+    fallback_graph:
+      mock/strong: [{to: mock/cheap, seed_state: safe}]
 
 tenants:
   dev:
@@ -97,10 +114,35 @@ tenants:
     budget_usd_daily: 2.00
     budget_mode: hard
     allowed_providers: [groq, openrouter, anthropic]
+  # The public demo tenant: strangers can reach it, so everything is capped and
+  # nothing about it is kept or learned from.
   demo:
     route: demo
-    limits: {rpm: 30, tpm: 40000, concurrency: 4}
+    limits: {rpm: 30, tpm: 40000, concurrency: 4, per_ip_rpm: 6}
+    request_limits: {max_messages: 20, max_tokens: 512}
     budget_usd_daily: 1.00
     budget_mode: hard
-    fallback_policy: strict    # edges must be seeded `safe` first (FR-5)
+    fallback_policy: strict    # edges must be seeded `safe` first
+    logging: metadata_only     # no prompt text is stored
+    evidence_sampling: off     # its traffic never feeds a policy decision
     allowed_providers: [groq, openrouter]
+  # The demo tenants for the simulator. Capped like `demo`, and like it they store nothing and
+  # feed no decision. `demo-sim` rides the `default` route, so it shows the router and the cache.
+  demo-sim:
+    route: default
+    limits: {rpm: 60, tpm: 200000, concurrency: 8, per_ip_rpm: 12}
+    request_limits: {max_messages: 20, max_tokens: 512}
+    budget_usd_daily: 1.00
+    budget_mode: hard
+    logging: metadata_only
+    evidence_sampling: off
+    cache: {enabled: true, semantic: true, ttl_s: 600}
+    allowed_providers: [mock]
+  demo-chaos:             # only the chaos panel's own traffic reaches this one (a per-process secret)
+    route: demo-chaos
+    limits: {rpm: 100000, tpm: 100000000, concurrency: 200}
+    budget_usd_daily: 1000
+    budget_mode: soft
+    logging: metadata_only
+    evidence_sampling: off
+    allowed_providers: [mock]

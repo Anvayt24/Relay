@@ -1,10 +1,11 @@
-"""Request-ID middleware (PRD FR-1, FR-8).
+"""Request-ID middleware.
 
 This is a pure ASGI middleware: a class with ``__call__(scope, receive, send)``. It is
 deliberately not Starlette's ``BaseHTTPMiddleware``, which runs the endpoint in a separate task
 and wraps the response body. That has historically broken streaming responses and context
-variables, and Phase 2 streams. ASGI is also the protocol everything else here is built on, so
-seeing it raw is worth it:
+variables, and Relay streams. ASGI is also the protocol everything else here is built on, so
+seeing it raw is worth it: pure ASGI supports streaming responses, WebSockets, and lifespan events,
+and is the interface that Starlette, FastAPI, and Uvicorn all implement.
 
 - ``scope``: a dict describing the connection (type, path, headers...);
 - ``receive()``: awaits the next event from the client (request body chunks, disconnect);
@@ -13,7 +14,7 @@ seeing it raw is worth it:
 
 To add a header to every response, wrap ``send`` and edit the start message as it goes past.
 
-**Phase 14:** the same place opens the request's root span (``relay.request``) when tracing is
+The same place also opens the request's root span (``relay.request``) when tracing is
 on, honouring an incoming W3C ``traceparent``, and sets the request-ID contextvar that log
 lines read (``relay/telemetry/logs.py``). Because this middleware wraps the whole app, and a
 streaming response sends its body inside that call, the span covers a stream until it ends.
@@ -107,3 +108,9 @@ class RequestIdMiddleware:
                 "url.path": scope.get("path", ""),
             },
         )
+
+
+# add a header to every request, looks at the http request header for existing and if not exist
+# then adds one to it. Also sets the request id in the context variable for logging and tracing.
+# If tracing is enabled, it creates a root span for the request and joins it to the caller's
+# trace if a traceparent is present.

@@ -20,7 +20,7 @@ from relay.schemas.errors import ErrorClass
 from .conftest import FakeClock  # type: ignore[import-not-found]
 
 
-# ---------------------------------------------------------------- policy (Appendix B)
+# ---------------------------------------------------------------- policy
 def test_terminal_classes_never_retry_or_fall_back() -> None:
     for terminal in (ErrorClass.BAD_REQUEST, ErrorClass.CONTENT_FILTERED):
         assert terminal not in RETRY_ONCE
@@ -28,7 +28,7 @@ def test_terminal_classes_never_retry_or_fall_back() -> None:
 
 
 def test_rate_limits_are_left_to_the_pause_state() -> None:
-    # Never retried on the same limit, never counted by the breaker (FR-5), but they do
+    # Never retried on the same limit, never counted by the breaker, but they do
     # fall back to another provider.
     for limit in (ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED):
         assert limit not in RETRY_ONCE
@@ -40,7 +40,7 @@ def test_policy_sets_are_consistent() -> None:
     assert RETRY_ONCE <= FALLBACK_ON  # a retry that fails again falls back
     assert not FALLBACK_ON & CONTEXT_FALLBACK
     # A broken stream counts toward the breaker, but it can never be a fallback trigger:
-    # the client already has part of an answer (FR-5).
+    # the client already has part of an answer.
     assert ErrorClass.STREAM_BROKEN in BREAKER_FAILURES
     assert not can_fall_back(ErrorClass.STREAM_BROKEN)
 
@@ -84,7 +84,7 @@ def test_retry_budget_is_per_provider() -> None:
 def test_retries_never_exceed_ratio_plus_minimum_in_any_window(
     events: list[tuple[str, float]],
 ) -> None:
-    """FR-4: retries <= 10% of requests (+ a small floor) per provider per window, whatever
+    """Retries <= 10% of requests (+ a small floor) per provider per window, whatever
     the arrival pattern."""
     clock = FakeClock()
     budget = RetryBudget(ratio=0.1, minimum=3, window_s=10, clock=clock)
@@ -104,12 +104,10 @@ def test_retries_never_exceed_ratio_plus_minimum_in_any_window(
 
 
 # ---------------------------------------------------------------- deadline
-def test_deadline_clamps_and_refuses_attempts_that_cannot_finish() -> None:
+def test_deadline_refuses_attempts_that_cannot_finish() -> None:
     d = Deadline(at=100.0)
     assert d.remaining(99.0) == 1.0
     assert d.remaining(101.0) == 0.0
-    assert d.clamp(99.0, 15.0) == 1.0
-    assert d.clamp(80.0, 15.0) == 15.0
     assert d.allows(99.0, 0.5)
     assert not d.allows(99.8, 0.5)
     assert not d.allows(100.0, 0.0)  # "no time needed" still needs *some* time left

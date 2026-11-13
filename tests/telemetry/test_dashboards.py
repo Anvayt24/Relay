@@ -1,4 +1,4 @@
-"""The provisioned Grafana setup (PRD FR-8): valid files, and dashboards that only query
+"""The provisioned Grafana setup: valid files, and dashboards that only query
 metrics Relay actually exports. A renamed metric would otherwise blank a panel silently."""
 
 import json
@@ -42,7 +42,7 @@ def test_the_overview_dashboard_exists_and_parses() -> None:
     assert [d.name for d in DASHBOARDS] == ["relay-overview.json"]
     board = json.loads(DASHBOARDS[0].read_text(encoding="utf-8"))
     titles = " ".join(p["title"] for p in board["panels"]).lower()
-    # FR-8's named dashboards.
+    # The dashboards an operator expects.
     for needed in ("cost saved", "cache hit rate", "per-provider", "fallback rate", "breaker"):
         assert needed in titles, needed
 
@@ -78,5 +78,13 @@ def test_the_stack_wires_traces_to_tempo() -> None:
     collector = yaml.safe_load(Path("deploy/otel-collector.yaml").read_text(encoding="utf-8"))
     assert "otlp/tempo" in collector["service"]["pipelines"]["traces"]["exporters"]
     api_env = compose["services"]["api"]["environment"]
-    assert api_env["RELAY_OTEL_ENDPOINT"] == "http://otel-collector:4317"
+    # The observability services are an opt-in profile (self-hosting keeps the default stack
+    # lean), so the endpoint is read from .env: pointing at a collector that is not running
+    # would make the exporter log errors forever. .env.example says what to set.
+    assert api_env["RELAY_OTEL_ENDPOINT"] == "${RELAY_OTEL_ENDPOINT:-}"
+    assert "RELAY_OTEL_ENDPOINT=http://otel-collector:4317" in Path(".env.example").read_text(
+        encoding="utf-8"
+    )
+    for service in ("otel-collector", "tempo", "prometheus", "grafana"):
+        assert compose["services"][service]["profiles"] == ["observability"]
     assert api_env["RELAY_LOG_FORMAT"] == "json"

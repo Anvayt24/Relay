@@ -1,18 +1,18 @@
 """The whole config file, and the cross-checks that make an invalid config fail at startup.
 
 Field-level rules (types, ranges, unknown keys) come from the Pydantic models. Rules that span
-sections live in ``RelayConfig._cross_checks``, one check per PRD FR-3 requirement:
+sections live in ``RelayConfig._cross_checks``, one check per rule:
 
 - every model names a known provider (and has prices: the fields are required);
 - every alias resolves to a known model;
 - every fallback graph refers to known models and is **acyclic**. A cycle would let a
-  failing request bounce between two models forever; the Phase 7 dispatcher relies on this;
+  failing request bounce between two models forever; the dispatcher relies on this;
 - every tenant's route exists, and its providers and models are known;
 - every alias in a tenant's route points at a model that tenant may call. Otherwise that
   alias would 404 for every request: a config bug, caught here instead of by users.
 
 An invalid config raises ``ValueError`` (Pydantic's ``ValidationError`` is one), and the app
-refuses to start (FR-3).
+refuses to start.
 """
 
 import logging
@@ -33,16 +33,16 @@ class FallbackEdge(BaseModel):
     model_config = STRICT
 
     to: str
-    # required: usable only once evidence says the target is good enough (FR-5).
+    # required: usable only once evidence says the target is good enough.
     # none: always usable, never marked degraded.
     quality_gate: Literal["required", "none"] = "required"
-    # The edge's state until a route card exists (Phase 12): the stand-in for PRD §10.2's
-    # offline seeding run. undecided by default, which is honest with no evidence (ADR 0010).
+    # The edge's state until a route card exists: the stand-in for an offline
+    # seeding run. undecided by default, which is honest with no evidence.
     seed_state: EdgeState = "undecided"
 
 
 class RouteCache(BaseModel):
-    """Semantic-cache parameters for a route (PRD FR-6). The threshold is *measured*, not
+    """Semantic-cache parameters for a route. The threshold is *measured*, not
     guessed: it is the smallest cosine similarity that reached >= 99% precision on the tune
     split of the cache eval (`make eval-cache`, evals/cache/metrics.json)."""
 
@@ -58,15 +58,15 @@ class RouteCache(BaseModel):
 
 
 class RouterSpec(BaseModel):
-    """A trained router for this route's ``relay/auto`` (PRD FR-7; ADR 0017)."""
+    """A trained router for this route's ``relay/auto``."""
 
     model_config = STRICT
 
     # The artifact file, relative to this config file. A missing or invalid file is NOT a
-    # startup failure: every relay/auto request then routes to strong (PRD degradation matrix).
+    # startup failure: every relay/auto request then routes to strong.
     artifact: str
     # Send a request to the cheap model when the router's estimated P(win-or-tie) is at least
-    # this. MEASURED on a validation split (evals/router, ADR 0018), never guessed: a higher
+    # this. MEASURED on a validation split (evals/router), never guessed: a higher
     # value is safer and sends less traffic to the cheap model.
     threshold: float = Field(ge=0, le=1)
     # The model name the router decides for. Fixed: no config ever set another, and allowing
@@ -82,7 +82,7 @@ class RouterSpec(BaseModel):
 
 
 class EvidenceSpec(BaseModel):
-    """The evidence engine for this route (PRD FR-10, §10; ADRs 0019-0022). Absent = no shadow
+    """The evidence engine for this route. Absent = no shadow
     sampling and no cards for the route."""
 
     model_config = STRICT
@@ -91,20 +91,28 @@ class EvidenceSpec(BaseModel):
     judge: str
     # The judge's output cap. 16 fits a one-word verdict from a plain model; a reasoning model
     # (gpt-oss, Gemini flash) spends tokens thinking first and needs a few hundred, or it runs
-    # out before the verdict and abstains (Phase 9/11).
+    # out before the verdict and abstains.
     judge_max_tokens: int = Field(default=16, gt=0)
-    # A comparison is "safe" when the lower bound of w is >= floor (§10.1).
+    # One judge = one model plus one rubric version (evals/judge/public/DECISION_RULE.md): the
+    # M7 calibration is measured for that pair and for no other. v2 asks for a one-line reason
+    # before the verdict (and stores it). Routes that share a judge model and output cap must
+    # agree on both settings below.
+    judge_prompt_version: Literal["v1", "v2"] = "v1"
+    # 0 for repeatable verdicts. None sends no temperature at all: Claude Sonnet 5.5 refuses
+    # any non-default value with a 400.
+    judge_temperature: float | None = Field(default=0.0, ge=0, le=2)
+    # A comparison is "safe" when the lower bound of w is >= floor.
     floor: float = Field(default=0.90, gt=0, lt=1)
     # Share of eligible requests that get a shadow call: while the comparison's card is
     # undecided or missing, and once it is decided (cheaper to keep watching than to decide).
     sample_rate: float = Field(default=0.05, ge=0, le=1)
     sample_rate_decided: float = Field(default=0.01, ge=0, le=1)
     # Cheap answers served by a canary bundle are sampled at this rate: a canary needs a
-    # decision quickly, so it gets more evidence (FR-11, §10.7).
+    # decision quickly, so it gets more evidence.
     canary_sample_rate: float = Field(default=0.25, ge=0, le=1)
-    # List-price cap on shadow + judge calls per UTC day (§10.2 item 3).
+    # List-price cap on shadow + judge calls per UTC day.
     shadow_budget_usd_per_day: Decimal = Field(default=Decimal("1"), ge=0)
-    # Pre-registered looks (ADR 0019): decide only every `look_every` judged pairs, at most
+    # Pre-registered looks: decide only every `look_every` judged pairs, at most
     # `max_looks` times, each at alpha / max_looks.
     look_every: int = Field(default=500, gt=0)
     max_looks: int = Field(default=4, gt=0)
@@ -113,9 +121,9 @@ class EvidenceSpec(BaseModel):
     rectifier_max_age_days: int = Field(default=30, gt=0)  # older human labels: card is stale
     interval: Literal["wald", "bootstrap"] = "wald"
     # Shadow the cheap model on strong-routed requests with router score in [band_lo,
-    # threshold): the only evidence that can support lowering the threshold (§10.2 item 5).
+    # threshold): the only evidence that can support lowering the threshold.
     band_lo: float | None = Field(default=None, ge=0, le=1)
-    # Shadow gated fallback targets on healthy-primary traffic (§10.2 item 2).
+    # Shadow gated fallback targets on healthy-primary traffic.
     sample_fallbacks: bool = True
 
 
@@ -124,7 +132,7 @@ class RouteSpec(BaseModel):
 
     # Alias (what clients send, e.g. "relay/cheap") -> Relay model name.
     aliases: dict[str, str]
-    # Model -> where to go when it fails, in order of preference (FR-5).
+    # Model -> where to go when it fails, in order of preference.
     fallback_graph: dict[str, list[FallbackEdge]] = Field(default_factory=dict)
     # How many fallback models one request may *attempt* (skipped ones don't count).
     max_fallback_hops: int = Field(default=2, ge=0)
@@ -134,12 +142,12 @@ class RouteSpec(BaseModel):
 
     @property
     def strong_model(self) -> str | None:
-        """The route's strong model: the "always strong" baseline for cost saved (FR-9)."""
+        """The route's strong model: the "always strong" baseline for cost saved."""
         return self.aliases.get("relay/strong")
 
 
 class ReliabilityConfig(BaseModel):
-    """Defaults for the retry owner and the breakers (PRD FR-5; ADRs 0008, 0009)."""
+    """Defaults for the retry owner and the breakers."""
 
     model_config = STRICT
 
@@ -147,7 +155,7 @@ class ReliabilityConfig(BaseModel):
     backoff_base_s: float = Field(default=0.2, gt=0)
     backoff_cap_s: float = Field(default=2.0, gt=0)
     # Retry budget, per provider and per replica: retries <= ratio x attempts + min, over a
-    # sliding window (FR-4: "retries limited to <= 10% of requests per provider per window").
+    # sliding window: by default retries stay within 10% of requests per provider per window.
     retry_budget_ratio: float = Field(default=0.1, ge=0, le=1)
     retry_budget_min: int = Field(default=3, ge=0)
     retry_budget_window_s: float = Field(default=10.0, gt=0)
@@ -172,6 +180,10 @@ class RelayConfig(BaseModel):
     routes: dict[str, RouteSpec]
     tenants: dict[str, Tenant]
     reliability: ReliabilityConfig = Field(default_factory=ReliabilityConfig)
+    # A daily ceiling on billed spend across ALL tenants, on top of each tenant's
+    # own budget. Off unless set. Hard: a request that would pass it is refused, and so is
+    # every request while the budget store is unreachable.
+    global_budget_usd_daily: Decimal | None = Field(default=None, ge=0)
 
     @model_validator(mode="before")
     @classmethod
@@ -194,6 +206,7 @@ class RelayConfig(BaseModel):
             if spec.provider not in self.providers:
                 raise ValueError(f"model {name!r}: unknown provider {spec.provider!r}")
 
+        judge_settings: dict[tuple[str, int], tuple[str, float | None]] = {}
         for route_name, route in self.routes.items():
             for alias, target in route.aliases.items():
                 if target not in self.models:
@@ -219,6 +232,16 @@ class RelayConfig(BaseModel):
                 ev = route.evidence
                 if ev.judge not in self.models:
                     raise ValueError(f"route {route_name!r}: unknown judge model {ev.judge!r}")
+                # The judge is built once per (model, output cap), so two routes sharing both
+                # must call it the same way, or one of them would be calibrated for nothing.
+                key = (ev.judge, ev.judge_max_tokens)
+                settings = (ev.judge_prompt_version, ev.judge_temperature)
+                if judge_settings.setdefault(key, settings) != settings:
+                    raise ValueError(
+                        f"route {route_name!r}: judge {ev.judge!r} with judge_max_tokens="
+                        f"{ev.judge_max_tokens} is configured with a different "
+                        "judge_prompt_version or judge_temperature on another route"
+                    )
                 if ev.band_lo is not None:
                     if route.router is None:
                         raise ValueError(

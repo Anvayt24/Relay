@@ -1,7 +1,7 @@
-"""Request-level Prometheus metrics (PRD FR-8; ADR 0025).
+"""Request-level Prometheus metrics.
 
 The stage-level metrics live next to the code they count (cache, breakers, queue, retries,
-fallbacks, router, shadow, policy, dropped logs). What FR-8 also needs is a view of the
+fallbacks, router, shadow, policy, dropped logs). What an operator also needs is a view of the
 *request*: how many, how they ended, how long they took, the tokens, the money. Those are
 recorded **once per request, in** ``LogStage.finalize``, from the same finished context that
 becomes the log row: no new code inside any stage, and nothing on the request's path (the
@@ -72,6 +72,13 @@ COST = Counter(
 # Each upstream call is observed where it ends, by the dispatcher (relay_provider_attempt_seconds
 # in relay/reliability/dispatch.py): that also covers judge and shadow calls, which have no
 # request of their own to be recorded with here.
+
+
+def record_rejected_credentials(error_class: str) -> None:
+    """A request refused before it has a tenant or a route (a bad or missing API key). It
+    never reaches LogStage, so it is counted here, under fixed placeholders: one series for
+    all of them, however many callers send bad keys."""
+    REQUESTS.labels("unknown", "none", "error", error_class).inc()
 
 
 def record_request(ctx: "RequestContext", outcome: "Outcome", duration_s: float) -> None:

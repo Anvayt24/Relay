@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from relay.config.models import ProviderSpec
+from relay.config.models import ModelSpec, ProviderSpec
 from relay.providers.anthropic import AnthropicAdapter
 from relay.providers.base import ProviderAdapter
 from relay.providers.openai_compat import OpenAICompatAdapter
@@ -57,7 +57,10 @@ NO_KEYS = _NoKeys(_env_file=None)
 
 
 def build_adapters(
-    keys: ProviderKeys, settings: Settings, providers: Mapping[str, ProviderSpec]
+    keys: ProviderKeys,
+    settings: Settings,
+    providers: Mapping[str, ProviderSpec],
+    models: Mapping[str, ModelSpec] | None = None,
 ) -> dict[str, ProviderAdapter]:
     adapters: dict[str, ProviderAdapter] = {}
     skipped = []
@@ -68,13 +71,24 @@ def build_adapters(
         if key is None:
             skipped.append(name)
             continue
-        adapters[name] = _adapter(name, spec, key, settings)
+        thinking_off = frozenset(
+            m.provider_model
+            for m in (models or {}).values()
+            if m.provider == name and m.thinking == "off"
+        )
+        adapters[name] = _adapter(name, spec, key, settings, thinking_off)
     if skipped:
         logger.info("no API key set for provider(s) %s; their models are unavailable", skipped)
     return adapters
 
 
-def _adapter(name: str, spec: ProviderSpec, key: str, settings: Settings) -> ProviderAdapter:
+def _adapter(
+    name: str,
+    spec: ProviderSpec,
+    key: str,
+    settings: Settings,
+    thinking_off: frozenset[str],
+) -> ProviderAdapter:
     if spec.kind == "anthropic":
         return AnthropicAdapter(
             name,
@@ -84,6 +98,7 @@ def _adapter(name: str, spec: ProviderSpec, key: str, settings: Settings) -> Pro
             connect_timeout_s=settings.connect_timeout_s,
             read_timeout_s=settings.request_timeout_s,
             stream_idle_timeout_s=settings.stream_idle_timeout_s,
+            thinking_off=thinking_off,
         )
     return OpenAICompatAdapter(
         name,

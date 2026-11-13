@@ -1,4 +1,4 @@
-"""Providers and models, as declared in the YAML config (PRD §9.5).
+"""Providers and models, as declared in the YAML config.
 
 Relay names and upstream IDs are kept apart on purpose:
 - clients only ever see Relay names;
@@ -7,17 +7,17 @@ Relay names and upstream IDs are kept apart on purpose:
 That lets an upstream rename (common with free tiers) be a one-line config change instead of a
 breaking change for every client.
 
-Prices are **list** prices in USD per 1M tokens, even for models used on a free tier (PRD
-FR-9): "cost saved" must compare list prices, or every saving on a free tier reads as $0.
+Prices are **list** prices in USD per 1M tokens, even for models used on a free tier:
+"cost saved" must compare list prices, or every saving on a free tier reads as $0.
 ``billing`` says what is actually charged. ``Decimal``, not ``float``: 0.075 must stay exactly
 0.075, because these numbers end up in money.
 """
 
 from collections.abc import Mapping
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Tier = Literal["cheap", "strong"]
 LimitScope = Literal["model", "account"]
@@ -34,15 +34,15 @@ class ProviderSpec(BaseModel):
     # compatibility endpoint). "anthropic": Anthropic's Messages API. "mock": in-process.
     kind: Literal["openai", "anthropic", "mock"]
     base_url: str = ""
-    # Where this provider enforces rate limits (FR-4): per model, or per account across all
-    # models. Phase 6 pauses exactly this scope after a 429.
+    # Where this provider enforces rate limits: per model, or per account across all
+    # models. After a 429, exactly this scope is paused.
     limit_scope: LimitScope = "model"
     # The env var holding the key. Never the key itself: config may be committed, keys never.
     api_key_env: str = ""
     # The request field for the output cap. Groq documents max_completion_tokens and treats
     # max_tokens as deprecated; the others take max_tokens.
     max_tokens_param: str = "max_tokens"
-    # Optional provider-wide limits Relay reserves against (Phase 6), to stay under the
+    # Optional provider-wide limits Relay reserves against, to stay under the
     # provider's own 429s instead of discovering them.
     rpm: int | None = Field(default=None, gt=0)
     tpm: int | None = Field(default=None, gt=0)
@@ -62,12 +62,22 @@ class ModelSpec(BaseModel):
     # computed and logged).
     billing: Literal["list", "free"] = "list"
     # The output cap sent upstream when the client sets none. Anthropic requires one, and
-    # Phase 6 reserves budget against it, so every request gets one.
+    # Budget is reserved against it, so every request gets one.
     default_max_tokens: int = Field(default=1024, gt=0)
     # Input + output tokens the model accepts. Only used to decide where a
-    # context_length_exceeded may fall back to (Phase 7): a target with a *larger* known
+    # context_length_exceeded may fall back to: a target with a *larger* known
     # window. None = unknown, and such a model is never a context-length fallback.
     context_window: int | None = Field(default=None, gt=0)
+    # "off" turns the model's own hidden reasoning off, for models that think by default and
+    # bill it as output (Claude Sonnet 5.5). A short verdict with a one-line reason needs none,
+    # so a judge on such a model sets it. Only the Anthropic adapter acts on it.
+    thinking: Literal["default", "off"] = "default"
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _yaml_reads_a_bare_off_as_false(cls, v: Any) -> Any:
+        # `thinking: off` is what a person writes, and YAML 1.1 turns a bare `off` into False.
+        return "off" if v is False else v
 
 
 def available_models(

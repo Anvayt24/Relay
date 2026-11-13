@@ -1,7 +1,7 @@
-"""Prompt embeddings, computed locally and off the event loop (PRD FR-6, FR-7; ADR 0016).
+"""Prompt embeddings, computed locally and off the event loop.
 
 An embedding turns a prompt into a vector so that *similar prompts are near each other*. The
-semantic cache looks for a stored prompt close enough to the new one; the router (Phase 11)
+semantic cache looks for a stored prompt close enough to the new one; the router
 uses the same vector as a feature. It is computed **once per request** and kept on the
 context, so the router doesn't pay for it again.
 
@@ -162,7 +162,3 @@ class FastEmbedder:
 
     async def close(self) -> None:
         self._pool.shutdown(wait=False)
-
-
-def cosine(a: list[float], b: list[float]) -> float:
-    return sum(x * y for x, y in zip(a, b, strict=True))

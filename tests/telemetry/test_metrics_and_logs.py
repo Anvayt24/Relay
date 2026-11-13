@@ -1,4 +1,4 @@
-"""Request-level metrics (bounded labels) and log lines that carry the request (PRD FR-8)."""
+"""Request-level metrics (bounded labels) and log lines that carry the request."""
 
 import json
 import logging
@@ -303,3 +303,29 @@ def test_an_exception_survives_the_queue() -> None:
     prepared = _QueueHandler(None).prepare(rec)  # type: ignore[arg-type]
     line = json.loads(JsonFormatter().format(prepared))
     assert line["msg"] == "failed now" and "ValueError: boom" in line["exc_info"]
+
+
+async def test_a_rejected_key_is_counted_without_inventing_a_tenant() -> None:
+    # A 401 has no tenant and no route yet. It is counted under fixed placeholders, so a
+    # flood of bad keys shows up on the dashboard without creating a series per caller.
+    from relay.auth.keys import generate_key
+    from relay.auth.store import MemoryKeyStore
+    from relay.providers.registry import NO_KEYS
+
+    rejected = {
+        "tenant": "unknown",
+        "route": "none",
+        "status": "error",
+        "error_class": "invalid_api_key",
+    }
+    before = value("relay_requests_total", **rejected)
+    app = create_app(
+        relay_settings(auth_disabled=False),
+        provider_keys=NO_KEYS,
+        key_store=MemoryKeyStore({}),
+    )
+    async with serving(app) as c:
+        bad = await c.post(CHAT, json=BODY, headers={"Authorization": f"Bearer {generate_key()}"})
+        await c.post(CHAT, json=BODY)  # no header at all
+    assert bad.status_code == 401
+    assert value("relay_requests_total", **rejected) == before + 2
