@@ -13,5 +13,6 @@ docs
 tests
 bench
 evals
-web
+web/node_modules
+web/dist
 deploy
