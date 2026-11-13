@@ -55,7 +55,7 @@ jobs:
       - run: make migrate
       - run: make test-integration
 
-  # Compressed fault scenarios (PRD §11.4: "short chaos smoke" per PR). Simulators and Relay
+  # Compressed fault scenarios: a short chaos smoke on every PR. Simulators and Relay
   # run as localhost subprocesses; no Docker, no network. Asserts documented behavior with
   # spread-tolerant thresholds, not exact numbers (interleaving isn't deterministic).
   chaos-smoke:
@@ -69,28 +69,45 @@ jobs:
       - run: uv sync --locked
       - run: make chaos-smoke
 
-  # Proves the image builds and the whole stack comes up healthy (PRD M0: "make up starts the stack").
-  compose-smoke:
+  # The demo page: TypeScript must compile under strict settings, and its logic tests must pass.
+  web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose -f deploy/docker-compose.yml up -d --build --wait
-      - run: curl --fail --silent --show-error http://localhost:8000/healthz
-      # End to end: create an API key with the CLI inside the image, call Relay with it, and
-      # check the request lands as a row in Postgres (migrate ran, auth works, the writer
-      # flushed). Without a key the call would be a 401. The flush interval is 0.5 s.
-      - run: |
-          KEY=$(docker compose -f deploy/docker-compose.yml exec -T api \
-            python -m relay.auth create-key --tenant dev 2>/dev/null)
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v1/models)" = 401
-          curl --fail -sS http://localhost:8000/v1/chat/completions \
-            -H "Authorization: Bearer $KEY" \
-            -H 'content-type: application/json' \
-            -d '{"model": "relay/auto", "messages": [{"role": "user", "content": "smoke"}]}'
-          sleep 2
-          test "$(docker compose -f deploy/docker-compose.yml exec -T postgres \
-            psql -U relay -tAc 'select count(*) from requests')" -ge 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web test
+
+  # Proves the self-hosted path works, from a clean checkout and with no provider keys: the stack
+  # builds and comes up healthy, the first API key is printed once, a request without it is
+  # refused and one with it is answered, and the request is recorded in Postgres.
+  self-host-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run python -m scripts.smoke
       - if: failure()
-        run: docker compose -f deploy/docker-compose.yml logs
-      - if: always()
-        run: docker compose -f deploy/docker-compose.yml down -v
+        run: docker compose -p relaysmoke logs
+
+  # The README's quickstart, run exactly as written: a quickstart nobody runs goes stale.
+  readme-quickstart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.16"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run python -m scripts.readme_quickstart
+      - if: failure()
+        run: docker compose -p relayquickstart logs
