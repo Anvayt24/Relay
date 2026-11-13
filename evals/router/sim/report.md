@@ -11,7 +11,7 @@ Router `router-sim-v1` (embedding `BAAI/bge-small-en-v1.5`). Test split: 631 pro
 - Quality vs ground truth: **0.9857**, one-sided 95% lower bound **0.9778** (floor 0.95: met).
 - Judge-only estimate (biased by the judge's errors): 0.9699.
 - **PPI-corrected** estimate: 0.9799, one-sided 95% lower bound 0.9630; the 150 gold labels are worth about 1.2x as many human labels (lambda 0.51).
-- List-price cost saved vs always-strong: 33.5% (illustrative: 100 prompt + 300 completion tokens per request, the shipped mock prices).
+- List-price cost saved vs always-strong: 33.5% (illustrative: 100 prompt + 300 completion tokens per request, list prices from relay.yaml).
 
 ## Baselines (test)
 

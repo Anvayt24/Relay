@@ -782,7 +782,30 @@
       "evidence_list_nano_usd": 1477500,
       "share": 0.0086
     },
-    "met": true
+    "met": true,
+    "sonnet_judge": {
+      "judge": "anthropic/sonnet",
+      "price_in": 2.0,
+      "price_out": 10.0,
+      "extra_output_tokens": 80,
+      "undecided_rate": {
+        "sample_rate": 0.05,
+        "requests": 1000,
+        "shadow_pairs": 22,
+        "routed_list_nano_usd": 172753000,
+        "evidence_list_nano_usd": 40062000,
+        "share": 0.2319
+      },
+      "decided_rate": {
+        "sample_rate": 0.01,
+        "requests": 1000,
+        "shadow_pairs": 5,
+        "routed_list_nano_usd": 172753000,
+        "evidence_list_nano_usd": 9105000,
+        "share": 0.0527
+      },
+      "met": false
+    }
   },
   "canary": {
     "runs": 200,
