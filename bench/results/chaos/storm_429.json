@@ -1,0 +1,498 @@
+{
+  "scenario": "storm_429",
+  "description": "The primary answers 429 to 80% of calls for 30 s (Retry-After 2 s).",
+  "smoke": false,
+  "duration_s": 60.0,
+  "rps": 20.0,
+  "runs": 5,
+  "clients": {
+    "relay": {
+      "success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "p95_s": {
+        "mean": 0.5155999999988126,
+        "stdev": 0.015501612817053471,
+        "runs": [
+          0.5,
+          0.5,
+          0.5309999999954016,
+          0.5309999999954016,
+          0.5160000000032596
+        ]
+      },
+      "p99_s": {
+        "mean": 0.7216000000000349,
+        "stdev": 0.043281635827067406,
+        "runs": [
+          0.6560000000026776,
+          0.7030000000013388,
+          0.7339999999967404,
+          0.75,
+          0.7649999999994179
+        ]
+      },
+      "retry_amplification": {
+        "mean": 1.0386003692367463,
+        "stdev": 0.005542301667233145,
+        "runs": [
+          1.0410385259631492,
+          1.0291666666666666,
+          1.0381493506493507,
+          1.0423236514522822,
+          1.0423236514522822
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 2.4,
+        "stdev": 0.6519202405202649,
+        "runs": [
+          2.0,
+          2.0,
+          3.5,
+          2.0,
+          2.5
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "naive_retry": {
+      "success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "p95_s": {
+        "mean": 8.946999999998662,
+        "stdev": 0.05221110993005669,
+        "runs": [
+          9.014999999999418,
+          8.906999999999243,
+          8.890999999995984,
+          8.985000000000582,
+          8.93699999999808
+        ]
+      },
+      "p99_s": {
+        "mean": 9.400199999999312,
+        "stdev": 0.03428119017921344,
+        "runs": [
+          9.406999999999243,
+          9.39100000000326,
+          9.453000000001339,
+          9.390999999995984,
+          9.35899999999674
+        ]
+      },
+      "retry_amplification": {
+        "mean": 2.2361892495384543,
+        "stdev": 0.06652334434905768,
+        "runs": [
+          2.2814070351758793,
+          2.1433333333333335,
+          2.250811688311688,
+          2.308713692946058,
+          2.1966804979253114
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 9.2,
+        "stdev": 1.1510864433221337,
+        "runs": [
+          7.5,
+          9.0,
+          9.0,
+          10.0,
+          10.5
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "direct": {
+      "success_rate": {
+        "mean": 0.6055614940395065,
+        "stdev": 0.02255653867786367,
+        "runs": [
+          0.5795644891122278,
+          0.635,
+          0.5941558441558441,
+          0.5966804979253112,
+          0.6224066390041494
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 0.2073001366380151,
+        "stdev": 0.01353709359280529,
+        "runs": [
+          0.1890145395799677,
+          0.2247787610619469,
+          0.2150706436420722,
+          0.20588235294117646,
+          0.20175438596491227
+        ]
+      },
+      "p95_s": {
+        "mean": 0.45319999999919675,
+        "stdev": 0.010963576057317011,
+        "runs": [
+          0.4530000000013388,
+          0.4529999999940628,
+          0.43800000000192085,
+          0.4530000000013388,
+          0.46899999999732245
+        ]
+      },
+      "p99_s": {
+        "mean": 0.665799999999581,
+        "stdev": 0.03600972090811115,
+        "runs": [
+          0.7189999999973224,
+          0.6719999999986612,
+          0.6719999999986612,
+          0.625,
+          0.6410000000032596
+        ]
+      },
+      "retry_amplification": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 3.5,
+        "stdev": 0.3535533905932738,
+        "runs": [
+          3.5,
+          3.5,
+          3.5,
+          4.0,
+          3.0
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "raw": {
+    "relay": [
+      {
+        "requests": 1194,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.21899999999732245,
+        "p95_s": 0.5,
+        "p99_s": 0.6560000000026776,
+        "retry_amplification": 1.0410385259631492,
+        "primary_calls": 604,
+        "fallback_calls": 639,
+        "primary_burstiness": 2.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1200,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.2190000000045984,
+        "p95_s": 0.5,
+        "p99_s": 0.7030000000013388,
+        "retry_amplification": 1.0291666666666666,
+        "primary_calls": 675,
+        "fallback_calls": 560,
+        "primary_burstiness": 2.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1232,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.2190000000045984,
+        "p95_s": 0.5309999999954016,
+        "p99_s": 0.7339999999967404,
+        "retry_amplification": 1.0381493506493507,
+        "primary_calls": 653,
+        "fallback_calls": 626,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1205,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.23500000000058208,
+        "p95_s": 0.5309999999954016,
+        "p99_s": 0.75,
+        "retry_amplification": 1.0423236514522822,
+        "primary_calls": 589,
+        "fallback_calls": 667,
+        "primary_burstiness": 2.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1205,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.23400000000401633,
+        "p95_s": 0.5160000000032596,
+        "p99_s": 0.7649999999994179,
+        "retry_amplification": 1.0423236514522822,
+        "primary_calls": 652,
+        "fallback_calls": 604,
+        "primary_burstiness": 2.5,
+        "incident_success_rate": 1.0
+      }
+    ],
+    "naive_retry": [
+      {
+        "requests": 1194,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.3430000000007567,
+        "p95_s": 9.014999999999418,
+        "p99_s": 9.406999999999243,
+        "retry_amplification": 2.2814070351758793,
+        "primary_calls": 2576,
+        "fallback_calls": 148,
+        "primary_burstiness": 7.5,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1200,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.2969999999986612,
+        "p95_s": 8.906999999999243,
+        "p99_s": 9.39100000000326,
+        "retry_amplification": 2.1433333333333335,
+        "primary_calls": 2446,
+        "fallback_calls": 126,
+        "primary_burstiness": 9.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1232,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.3280000000013388,
+        "p95_s": 8.890999999995984,
+        "p99_s": 9.453000000001339,
+        "retry_amplification": 2.250811688311688,
+        "primary_calls": 2638,
+        "fallback_calls": 135,
+        "primary_burstiness": 9.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1205,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.3280000000013388,
+        "p95_s": 8.985000000000582,
+        "p99_s": 9.390999999995984,
+        "retry_amplification": 2.308713692946058,
+        "primary_calls": 2627,
+        "fallback_calls": 155,
+        "primary_burstiness": 10.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 1205,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.2969999999986612,
+        "p95_s": 8.93699999999808,
+        "p99_s": 9.35899999999674,
+        "retry_amplification": 2.1966804979253114,
+        "primary_calls": 2503,
+        "fallback_calls": 144,
+        "primary_burstiness": 10.5,
+        "incident_success_rate": 1.0
+      }
+    ],
+    "direct": [
+      {
+        "requests": 1194,
+        "success_rate": 0.5795644891122278,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.4530000000013388,
+        "p99_s": 0.7189999999973224,
+        "retry_amplification": 1.0,
+        "primary_calls": 1194,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 0.1890145395799677
+      },
+      {
+        "requests": 1200,
+        "success_rate": 0.635,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.18800000000192085,
+        "p95_s": 0.4529999999940628,
+        "p99_s": 0.6719999999986612,
+        "retry_amplification": 1.0,
+        "primary_calls": 1200,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 0.2247787610619469
+      },
+      {
+        "requests": 1232,
+        "success_rate": 0.5941558441558441,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.43800000000192085,
+        "p99_s": 0.6719999999986612,
+        "retry_amplification": 1.0,
+        "primary_calls": 1232,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 0.2150706436420722
+      },
+      {
+        "requests": 1205,
+        "success_rate": 0.5966804979253112,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.18800000000192085,
+        "p95_s": 0.4530000000013388,
+        "p99_s": 0.625,
+        "retry_amplification": 1.0,
+        "primary_calls": 1205,
+        "fallback_calls": 0,
+        "primary_burstiness": 4.0,
+        "incident_success_rate": 0.20588235294117646
+      },
+      {
+        "requests": 1205,
+        "success_rate": 0.6224066390041494,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.18800000000192085,
+        "p95_s": 0.46899999999732245,
+        "p99_s": 0.6410000000032596,
+        "retry_amplification": 1.0,
+        "primary_calls": 1205,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.0,
+        "incident_success_rate": 0.20175438596491227
+      }
+    ]
+  }
+}

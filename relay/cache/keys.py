@@ -13,7 +13,8 @@ Two keys, for the two layers:
 **Why the alias and not the routed model.** The router may pick a different model tomorrow
 (a new policy), but the client asked for ``relay/auto``, and the cache is keyed by what was
 asked. Each entry records the model that actually served it, so the response headers stay
-honest; policy changes can flush by ``policy_version`` (Phase 13).
+honest. A policy change does not flush the cache: entries age out by their TTL. Each one
+records its ``policy_version``, so a flush by version could be added, but nothing does it.
 
 **Why max_tokens needs care.** A reply cut off at ``max_tokens: 50`` must never answer a
 request for 1000 tokens, and a long reply must never answer a request capped at 50. The exact
@@ -37,10 +38,6 @@ def normalize(text: str) -> str:
     """Unicode NFC and no trailing whitespace: "café" typed two ways, or a stray trailing
     newline, are the same request. Case and inner whitespace are kept: they can matter."""
     return unicodedata.normalize("NFC", text).rstrip()
-
-
-def effective_max_tokens(req: ChatRequest, default: int) -> int:
-    return req.max_tokens or default
 
 
 def max_tokens_bucket(max_tokens: int | None) -> str:

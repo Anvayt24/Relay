@@ -2,11 +2,14 @@
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from relay.evidence import calibrate, pairs, validate
+from evals.judge import build_pairs as pairs
+from evals.judge import validate
+from relay.evidence import calibrate
 from relay.evidence.pairs import EvalPair, read_jsonl, write_jsonl
 from relay.providers.registry import ProviderKeys
 
@@ -36,7 +39,7 @@ def test_build_writes_judged_pairs_and_counts_its_calls(
     pairs.main(argv)
 
     built = read_jsonl(out)
-    assert [p.candidate_response for p in built] == ["four", "red"]
+    assert [p.candidate_text for p in built] == ["four", "red"]
     assert [p.judge_label for p in built] == ["tie", "tie"]
     assert len(fake.requests) == 6  # exactly the 3 calls per prompt that were planned
     text = capsys.readouterr().out
@@ -63,11 +66,12 @@ def test_calibrate_cli_writes_a_report(
 ) -> None:
     ps = [
         EvalPair(
-            id=f"p{i}", prompt_hash="h", prompt="q", cohort="c", candidate_model="a",
-            reference_model="b", candidate_response="x", reference_response="y",
+            pair_id=f"p{i}", prompt_hash="h", cohort="c", comparison="a_vs_b",
+            candidate_model="a", reference_model="b",
             judge_label="loss" if i % 3 == 0 else "tie", judge_model="j",
             judge_prompt_version="v1", position_swapped=False, text_retained=True,
-            ts="2026-01-01T00:00:00+00:00", source="pilot",
+            ts=datetime(2026, 1, 1, tzinfo=UTC), source="pilot",
+            prompt_text="q", candidate_text="x", reference_text="y",
         )
         for i in range(60)
     ]  # fmt: skip
@@ -77,7 +81,7 @@ def test_calibrate_cli_writes_a_report(
         "\n".join(
             json.dumps(
                 {
-                    "pair_id": p.id,
+                    "pair_id": p.pair_id,
                     "label": p.judge_label,  # a perfect agreement with the judge
                     "annotator": "me",
                     "is_relabel": False,

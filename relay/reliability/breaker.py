@@ -206,3 +206,6 @@ class BreakerRegistry:
 
     def record(self, permit: Permit, error_class: ErrorClass | None) -> None:
         self.get(permit.provider, permit.model).record(permit, error_class)
+
+    def release(self, permit: Permit) -> None:
+        self.get(permit.provider, permit.model).release(permit)

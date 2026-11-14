@@ -33,9 +33,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy.stats import beta
 
 from relay.cache.keys import guard_signature
-from relay.evidence.stats import clopper_pearson_lower
 
 HERE = Path(__file__).parent
 TARGET_PRECISION = 0.99
@@ -43,6 +43,19 @@ MIN_HITS = 30  # a "99% precision" from 10 hits is not a measurement
 THRESHOLDS = [round(0.50 + 0.0025 * i, 4) for i in range(201)]  # 0.50 .. 1.00
 BOOTSTRAP = 2000
 SEED = 0
+
+
+def clopper_pearson_lower(successes: int, n: int, confidence: float = 0.95) -> float:
+    """One-sided lower confidence bound for a proportion (exact, Clopper-Pearson).
+
+    With zero failures in n trials the bound is ``(1 - confidence) ** (1 / n)``: the "rule of
+    three" behind the PRD's cache sample-size note (about 300 clean hits to show >= 99%).
+    """
+    if n == 0:
+        return math.nan
+    if successes == 0:
+        return 0.0
+    return float(beta.ppf(1 - confidence, successes, n - successes + 1))
 
 
 def load() -> list[dict[str, Any]]:

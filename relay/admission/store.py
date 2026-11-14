@@ -31,7 +31,6 @@ forever. Expired reservations are swept at the start of every ``reserve``.
 **Money is integer nano-USD** (see ``relay/config/pricing.py``). No floats near a budget.
 """
 
-import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -74,6 +73,11 @@ class _Budget:
     # res_id -> (amount, expires_at)
     outstanding: dict[str, tuple[int, float]] = field(default_factory=dict)
     settled: set[str] = field(default_factory=set)
+    touched: float = 0.0  # last use, on the store's clock
+
+
+# A budget unused for this long is dropped (daily keys: yesterday's is done after a day).
+BUDGET_IDLE_S = 2 * 86_400
 
 
 class MemoryStore:
@@ -83,7 +87,7 @@ class MemoryStore:
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         self._buckets: dict[str, _Bucket] = {}
-        self._budgets: dict[str, _Budget] = {}
+        self._budgets: dict[str, _Budget] = {}  # pruned by _budget()
         self._pauses: dict[str, float] = {}  # key -> until
 
     async def start(self) -> None:
@@ -126,7 +130,7 @@ class MemoryStore:
         return True
 
     async def settle(self, budget: str, res_id: str, *, actual: int) -> bool:
-        state = self._budgets.setdefault(budget, _Budget())
+        state = self._budget(budget)
         if res_id in state.settled:
             return False  # already settled: never charge twice
         state.settled.add(res_id)
@@ -138,8 +142,21 @@ class MemoryStore:
         state = self._swept(budget)
         return BudgetState(state.committed, sum(a for a, _ in state.outstanding.values()))
 
+    def _budget(self, budget: str) -> _Budget:
+        """The budget's state. Budget keys are per day ("tenant:YYYYMMDD"), so yesterday's stop
+        being used; when a new one appears, budgets untouched for two days are dropped (found in
+        review: they, and every settled reservation id in them, were kept forever)."""
+        now = self._clock()
+        state = self._budgets.get(budget)
+        if state is None:
+            cutoff = now - BUDGET_IDLE_S
+            self._budgets = {k: v for k, v in self._budgets.items() if v.touched > cutoff}
+            state = self._budgets[budget] = _Budget()
+        state.touched = now
+        return state
+
     def _swept(self, budget: str) -> _Budget:
-        state = self._budgets.setdefault(budget, _Budget())
+        state = self._budget(budget)
         now = self._clock()
         for res_id in [r for r, (_, exp) in state.outstanding.items() if exp <= now]:
             del state.outstanding[res_id]
@@ -153,7 +170,3 @@ class MemoryStore:
     async def paused_for(self, key: str) -> float:
         remaining = self._pauses.get(key, 0.0) - self._clock()
         return max(0.0, remaining)
-
-
-def ceil_div(a: int, b: int) -> int:
-    return math.ceil(a / b)

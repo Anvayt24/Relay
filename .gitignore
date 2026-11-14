@@ -28,3 +28,7 @@ docs
 
 # Local assistant instructions: kept on disk, never in the repo.
 CLAUDE.md
+
+# The demo page: built output and tool installs
+web/node_modules/
+web/dist/

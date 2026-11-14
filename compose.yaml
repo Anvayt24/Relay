@@ -1,0 +1,5 @@
+# `docker compose up -d` from the repository root starts Relay: the gateway, Postgres and
+# Redis. Add `--profile observability` for Prometheus, Grafana and Tempo. The services are
+# defined in deploy/docker-compose.yml; this file only makes the short command work.
+include:
+  - path: deploy/docker-compose.yml

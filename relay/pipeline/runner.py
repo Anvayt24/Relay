@@ -34,6 +34,7 @@ from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, Stage
 from relay.pipeline.streaming import PrimedStream
 from relay.schemas.chat import ChatResponse
 from relay.schemas.errors import ErrorClass, RelayError
+from relay.telemetry import tracing
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +58,6 @@ class Finalizer:
         self._ctx = ctx
         self._done = False
 
-    @property
-    def done(self) -> bool:
-        return self._done
-
     async def __call__(self, outcome: Outcome) -> None:
         if self._done:
             return
@@ -71,8 +68,8 @@ class Finalizer:
             except Exception:
                 # Cleanup must never turn a served response into an error, or stop the other
                 # stages from cleaning up. Count it so it shows up on a dashboard.
-                # stdlib logging is synchronous I/O, which is acceptable only because this
-                # path is rare. Per-request rows go through the async LogWriter.
+                # The log line goes through the logging queue (relay.telemetry.logs), so
+                # it never blocks the loop; per-request rows go through the async LogWriter.
                 FINALIZE_ERRORS.labels(stage=stage.name).inc()
                 logger.exception(
                     "finalize failed: stage=%s request_id=%s", stage.name, self._ctx.request_id
@@ -101,7 +98,14 @@ class Pipeline:
                 # something (a reservation, a slot), so it must still be finalized. Unlike
                 # __aexit__, finalize() must therefore cope with partial state.
                 ran.append(stage)
-                match await stage.process(ctx):
+                # One span per stage (Phase 14), around process() only: finalize runs after
+                # the response and is short. A no-op when tracing is off.
+                with tracing.error_span(f"relay.stage.{stage.name}") as span:
+                    result = await stage.process(ctx)
+                    span.set_attribute("relay.stage.result", type(result).__name__)
+                    if isinstance(result, Reject):
+                        tracing.mark_error(span, result.error.error_class.value)
+                match result:
                     case Continue():
                         continue
                     case ShortCircuit(response=PrimedStream() as stream):

@@ -49,11 +49,6 @@ BREAKER_FAILURES: frozenset[ErrorClass] = frozenset(
     }
 )
 
-# Neither a breaker success nor a failure: owned by the pause state (FR-4).
-BREAKER_IGNORES: frozenset[ErrorClass] = frozenset(
-    {ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED}
-)
-
 
 def can_fall_back(error_class: ErrorClass) -> bool:
     return error_class in FALLBACK_ON or error_class in CONTEXT_FALLBACK

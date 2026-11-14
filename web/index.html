@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relay</title>
+  <meta name="description" content="Relay is a self-hosted LLM gateway that keeps apps up when providers fail and measures its own routing decisions.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1>Relay</h1>
+    <p>A self-hosted LLM gateway. It keeps apps up when model providers fail, sends easy requests to cheap models, and measures its own decisions.</p>
+    <p class="links"><a href="https://github.com/Anvayt24/Relay">Source code</a> · <a href="https://github.com/Anvayt24/Relay/tree/main/guide">Guide</a></p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Demo sections">
+    <button role="tab" id="tab-playground" aria-controls="panel-playground" aria-selected="true">Playground</button>
+    <button role="tab" id="tab-chaos" aria-controls="panel-chaos" aria-selected="false" tabindex="-1">Chaos</button>
+    <button role="tab" id="tab-evidence" aria-controls="panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
+  </div>
+
+  <main>
+    <p id="fatal" class="error" role="alert" hidden>The demo could not reach its server.</p>
+
+    <section id="panel-playground" role="tabpanel" aria-labelledby="tab-playground">
+      <h2>Playground</h2>
+      <p>Send a prompt through the gateway and see what it decided: the cache, the router, the model, any fallback, and what it cost against always using the strong model.</p>
+      <form id="chat-form">
+        <label for="mode">Models</label>
+        <select id="mode"></select>
+        <div id="key-row">
+          <label for="api-key">API key</label>
+          <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="rk_...">
+          <p class="note">Sent only to this gateway, and never stored by the page.</p>
+        </div>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="4" maxlength="2000" placeholder="Ask anything short"></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+      <div id="answer" class="answer" aria-live="polite"></div>
+      <div id="decision" class="decision"></div>
+    </section>
+
+    <section id="panel-chaos" role="tabpanel" aria-labelledby="tab-chaos" hidden>
+      <h2>Chaos</h2>
+      <p>The primary model of a simulated provider is broken for 30 seconds. Relay falls back to a second model. A naive client retries five times with growing waits, then tries the fallback once. Both send the same requests.</p>
+      <p id="chaos-off" class="note" hidden>This server was not started with the chaos panel on.</p>
+      <div id="chaos-live">
+        <div class="controls" role="group" aria-label="Break the simulated provider">
+          <button data-chaos="kill">Kill the primary</button>
+          <button data-chaos="slow">Slow it down 6×</button>
+          <button data-chaos="storm">Rate-limit storm</button>
+          <button data-chaos="clear">Repair</button>
+        </div>
+        <p id="chaos-error" class="error" role="alert"></p>
+        <div class="compare">
+          <div class="client">
+            <h3>Relay</h3>
+            <div id="stats-relay" class="stats"></div>
+          </div>
+          <div class="client">
+            <h3>Naive retry client</h3>
+            <div id="stats-naive" class="stats"></div>
+          </div>
+        </div>
+        <figure>
+          <svg viewBox="0 0 300 80" role="img" aria-label="p95 latency over the last 90 seconds, Relay and the naive client">
+            <line x1="0" y1="0.5" x2="300" y2="0.5" class="grid"/>
+            <line x1="0" y1="79.5" x2="300" y2="79.5" class="grid"/>
+            <polyline id="line-naive" class="line naive" points=""/>
+            <polyline id="line-relay" class="line relay" points=""/>
+          </svg>
+          <figcaption>p95 latency over the last 90 seconds, from 0 to <span id="chart-top">1 s</span>. <span class="key relay">Relay</span> <span class="key naive">Naive client</span></figcaption>
+        </figure>
+        <p class="note">Simulator only: no real provider is called.</p>
+      </div>
+    </section>
+
+    <section id="panel-evidence" role="tabpanel" aria-labelledby="tab-evidence" hidden>
+      <h2>Evidence</h2>
+      <div id="evidence-body"><p class="note">Loading…</p></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Relay is open source (MIT). Numbers on this page come from runs in the repository that anyone can reproduce.</p>
+  </footer>
+
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>

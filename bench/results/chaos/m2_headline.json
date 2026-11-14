@@ -1,0 +1,498 @@
+{
+  "scenario": "m2_headline",
+  "description": "PRD M2: 20% of the primary's calls return 429, plus one 60 s hard outage.",
+  "smoke": false,
+  "duration_s": 120.0,
+  "rps": 20.0,
+  "runs": 5,
+  "clients": {
+    "relay": {
+      "success_rate": {
+        "mean": 0.9994222570467679,
+        "stdev": 0.0004657320096296388,
+        "runs": [
+          0.9995831596498541,
+          0.9987735077677842,
+          1.0,
+          0.9995810640971932,
+          0.9991735537190083
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 0.9993473025709271,
+        "stdev": 0.0006729993214221009,
+        "runs": [
+          0.9991589571068125,
+          1.0,
+          1.0,
+          0.999176276771005,
+          0.9984012789768185
+        ]
+      },
+      "p95_s": {
+        "mean": 0.6656000000002678,
+        "stdev": 0.02837780823114454,
+        "runs": [
+          0.625,
+          0.6560000000026776,
+          0.7030000000013388,
+          0.6719999999986612,
+          0.6719999999986612
+        ]
+      },
+      "p99_s": {
+        "mean": 1.0373999999996157,
+        "stdev": 0.05136438454811025,
+        "runs": [
+          1.0309999999954016,
+          1.0,
+          1.125,
+          1.0,
+          1.0310000000026776
+        ]
+      },
+      "retry_amplification": {
+        "mean": 1.081921734667879,
+        "stdev": 0.008002094472516326,
+        "runs": [
+          1.0912880366819508,
+          1.07113654946852,
+          1.0882474226804124,
+          1.0795978215333053,
+          1.0793388429752067
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 4.4,
+        "stdev": 1.2942179105544784,
+        "runs": [
+          4.5,
+          3.0,
+          6.5,
+          4.0,
+          4.0
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "naive_retry": {
+      "success_rate": {
+        "mean": 0.9999166319299707,
+        "stdev": 0.00018641667173820316,
+        "runs": [
+          0.9995831596498541,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 0.9998206278026907,
+        "stdev": 0.00040108842645735263,
+        "runs": [
+          0.9991031390134529,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "p95_s": {
+        "mean": 54.34660000000149,
+        "stdev": 15.232031653723181,
+        "runs": [
+          65.53100000000268,
+          36.53100000000268,
+          39.31199999999808,
+          68.70300000000134,
+          61.65600000000268
+        ]
+      },
+      "p99_s": {
+        "mean": 68.68139999999985,
+        "stdev": 18.85735802810091,
+        "runs": [
+          81.07799999999406,
+          45.953999999997905,
+          50.39100000000326,
+          85.0,
+          80.98400000000402
+        ]
+      },
+      "retry_amplification": {
+        "mean": 2.4414228861876643,
+        "stdev": 0.3245558933549831,
+        "runs": [
+          2.3413922467694874,
+          2.91005723630417,
+          2.6305154639175257,
+          2.1776288227901133,
+          2.147520661157025
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 37.9,
+        "stdev": 12.919945820319835,
+        "runs": [
+          23.5,
+          51.0,
+          46.0,
+          24.5,
+          44.5
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "direct": {
+      "success_rate": {
+        "mean": 0.3962920196024762,
+        "stdev": 0.011029896207645499,
+        "runs": [
+          0.4035014589412255,
+          0.39043336058871625,
+          0.41195876288659794,
+          0.39002932551319647,
+          0.38553719008264464
+        ]
+      },
+      "incident_success_rate": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "p95_s": {
+        "mean": 0.45020000000222354,
+        "stdev": 0.01716682847701572,
+        "runs": [
+          0.4530000000013388,
+          0.4690000000045984,
+          0.4539999999979045,
+          0.4220000000059372,
+          0.4530000000013388
+        ]
+      },
+      "p99_s": {
+        "mean": 0.6561999999976251,
+        "stdev": 0.05501545237516773,
+        "runs": [
+          0.6089999999967404,
+          0.7180000000007567,
+          0.6569999999992433,
+          0.5939999999973224,
+          0.7029999999940628
+        ]
+      },
+      "retry_amplification": {
+        "mean": 1.0,
+        "stdev": 0.0,
+        "runs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "primary_burstiness": {
+        "mean": 4.1,
+        "stdev": 0.8215838362577492,
+        "runs": [
+          4.0,
+          4.0,
+          3.5,
+          3.5,
+          5.5
+        ]
+      },
+      "degraded": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "silent_truncations": {
+        "mean": 0.0,
+        "stdev": 0.0,
+        "runs": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "raw": {
+    "relay": [
+      {
+        "requests": 2399,
+        "success_rate": 0.9995831596498541,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.25,
+        "p95_s": 0.625,
+        "p99_s": 1.0309999999954016,
+        "retry_amplification": 1.0912880366819508,
+        "primary_calls": 487,
+        "fallback_calls": 2131,
+        "primary_burstiness": 4.5,
+        "incident_success_rate": 0.9991589571068125
+      },
+      {
+        "requests": 2446,
+        "success_rate": 0.9987735077677842,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.25,
+        "p95_s": 0.6560000000026776,
+        "p99_s": 1.0,
+        "retry_amplification": 1.07113654946852,
+        "primary_calls": 422,
+        "fallback_calls": 2198,
+        "primary_burstiness": 3.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 2425,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.25,
+        "p95_s": 0.7030000000013388,
+        "p99_s": 1.125,
+        "retry_amplification": 1.0882474226804124,
+        "primary_calls": 474,
+        "fallback_calls": 2165,
+        "primary_burstiness": 6.5,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 2387,
+        "success_rate": 0.9995810640971932,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.25,
+        "p95_s": 0.6719999999986612,
+        "p99_s": 1.0,
+        "retry_amplification": 1.0795978215333053,
+        "primary_calls": 452,
+        "fallback_calls": 2125,
+        "primary_burstiness": 4.0,
+        "incident_success_rate": 0.999176276771005
+      },
+      {
+        "requests": 2420,
+        "success_rate": 0.9991735537190083,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.25,
+        "p95_s": 0.6719999999986612,
+        "p99_s": 1.0310000000026776,
+        "retry_amplification": 1.0793388429752067,
+        "primary_calls": 427,
+        "fallback_calls": 2185,
+        "primary_burstiness": 4.0,
+        "incident_success_rate": 0.9984012789768185
+      }
+    ],
+    "naive_retry": [
+      {
+        "requests": 2399,
+        "success_rate": 0.9995831596498541,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 11.889999999999418,
+        "p95_s": 65.53100000000268,
+        "p99_s": 81.07799999999406,
+        "retry_amplification": 2.3413922467694874,
+        "primary_calls": 5304,
+        "fallback_calls": 313,
+        "primary_burstiness": 23.5,
+        "incident_success_rate": 0.9991031390134529
+      },
+      {
+        "requests": 2446,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 8.593000000000757,
+        "p95_s": 36.53100000000268,
+        "p99_s": 45.953999999997905,
+        "retry_amplification": 2.91005723630417,
+        "primary_calls": 6451,
+        "fallback_calls": 667,
+        "primary_burstiness": 51.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 2425,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 8.39100000000326,
+        "p95_s": 39.31199999999808,
+        "p99_s": 50.39100000000326,
+        "retry_amplification": 2.6305154639175257,
+        "primary_calls": 5869,
+        "fallback_calls": 510,
+        "primary_burstiness": 46.0,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 2387,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 13.343999999997322,
+        "p95_s": 68.70300000000134,
+        "p99_s": 85.0,
+        "retry_amplification": 2.1776288227901133,
+        "primary_calls": 4965,
+        "fallback_calls": 233,
+        "primary_burstiness": 24.5,
+        "incident_success_rate": 1.0
+      },
+      {
+        "requests": 2420,
+        "success_rate": 1.0,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 8.985000000000582,
+        "p95_s": 61.65600000000268,
+        "p99_s": 80.98400000000402,
+        "retry_amplification": 2.147520661157025,
+        "primary_calls": 4936,
+        "fallback_calls": 261,
+        "primary_burstiness": 44.5,
+        "incident_success_rate": 1.0
+      }
+    ],
+    "direct": [
+      {
+        "requests": 2399,
+        "success_rate": 0.4035014589412255,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.4530000000013388,
+        "p99_s": 0.6089999999967404,
+        "retry_amplification": 1.0,
+        "primary_calls": 2399,
+        "fallback_calls": 0,
+        "primary_burstiness": 4.0,
+        "incident_success_rate": 0.0
+      },
+      {
+        "requests": 2446,
+        "success_rate": 0.39043336058871625,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.4690000000045984,
+        "p99_s": 0.7180000000007567,
+        "retry_amplification": 1.0,
+        "primary_calls": 2446,
+        "fallback_calls": 0,
+        "primary_burstiness": 4.0,
+        "incident_success_rate": 0.0
+      },
+      {
+        "requests": 2425,
+        "success_rate": 0.41195876288659794,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.18800000000192085,
+        "p95_s": 0.4539999999979045,
+        "p99_s": 0.6569999999992433,
+        "retry_amplification": 1.0,
+        "primary_calls": 2425,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 0.0
+      },
+      {
+        "requests": 2387,
+        "success_rate": 0.39002932551319647,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.4220000000059372,
+        "p99_s": 0.5939999999973224,
+        "retry_amplification": 1.0,
+        "primary_calls": 2387,
+        "fallback_calls": 0,
+        "primary_burstiness": 3.5,
+        "incident_success_rate": 0.0
+      },
+      {
+        "requests": 2420,
+        "success_rate": 0.38553719008264464,
+        "degraded": 0,
+        "silent_truncations": 0,
+        "p50_s": 0.20300000000133878,
+        "p95_s": 0.4530000000013388,
+        "p99_s": 0.7029999999940628,
+        "retry_amplification": 1.0,
+        "primary_calls": 2420,
+        "fallback_calls": 0,
+        "primary_burstiness": 5.5,
+        "incident_success_rate": 0.0
+      }
+    ]
+  }
+}

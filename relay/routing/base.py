@@ -27,4 +27,10 @@ class RouteDecision:
 
 
 class Router(Protocol):
-    async def decide(self, req: ChatRequest, ctx: "RequestContext") -> RouteDecision: ...
+    async def decide(
+        self, req: ChatRequest, ctx: "RequestContext", *, shadow: bool = False
+    ) -> RouteDecision:
+        """``shadow=True``: a shadow policy's decision (FR-11), logged and never applied. It
+        records no metrics (the live decision's counters must only count live decisions) and
+        changes nothing on ``ctx``."""
+        ...

@@ -6,7 +6,7 @@ Reading order, from the pure core outwards:
 - ``scenario``: what each simulated model is like (latency, length, errors, quality,
   capacity, incidents), plus the ``PRESETS``.
 - ``quality``:  hidden correctness ``c ~ Bernoulli(q)``, and solving q from a target win rate.
-- ``judge``:    a mock judge with tunable sensitivity and false-loss rate, and drift.
+- ``judge``:    a mock judge with tunable sensitivity and false-loss rate.
 - ``capacity``: RPM/TPM token buckets per API key, and the injectable clock.
 - ``plan``:     the per-request decision (pure); scripted and sampled planners.
 - ``engine``:   ``Simulator`` gates and plans a request, and ``Call`` executes the plan.

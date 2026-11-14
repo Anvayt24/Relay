@@ -1,5 +1,16 @@
 # syntax=docker/dockerfile:1
 
+# ---- Stage 0: build the demo page --------------------------------------------------------
+# Plain TypeScript compiled by `tsc`; nothing from this stage runs in Node at runtime. Only the
+# compiled page is copied into the final image.
+FROM node:24-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/tsconfig.json web/index.html web/style.css ./
+COPY web/src ./src
+RUN npx tsc
+
 # ---- Stage 1: build the virtualenv ---------------------------------------------------
 # A separate build stage keeps uv, build caches, and build-only files out of the final image.
 FROM python:3.12-slim AS builder
@@ -28,7 +39,7 @@ COPY relay ./relay
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --reinstall-package relay
 
-# Bake the embedding model into the image (semantic cache, PRD FR-6). Downloading ~130 MB at
+# Bake the embedding model into the image (for the semantic cache). Downloading ~130 MB at
 # startup would make a fresh container slow to become useful and break offline deploys; Relay
 # also tolerates the model being absent (the semantic layer stays off), so this is an
 # optimization, not a requirement.
@@ -44,13 +55,21 @@ RUN useradd --create-home --uid 10001 relay
 WORKDIR /app
 COPY --from=builder --chown=relay:relay /app/.venv /app/.venv
 COPY --from=builder --chown=relay:relay /app/models /app/models
+# The demo page, served at / by the gateway (RELAY_UI=off turns it off).
+COPY --from=web --chown=relay:relay /web/index.html /web/style.css /app/web/
+COPY --from=web --chown=relay:relay /web/dist /app/web/dist
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     FASTEMBED_CACHE_PATH=/app/models
 
+# The directory the gateway keeps its generated secrets in (RELAY_DATA_DIR). It must exist, and
+# belong to `relay`, in the image: Docker gives a new named volume the ownership of the
+# directory it covers, so the unprivileged process can write to it.
+RUN mkdir /data && chown relay:relay /data
+
 USER relay
 EXPOSE 8000
 # --timeout-graceful-shutdown: on SIGTERM uvicorn waits this long for in-flight requests and
-# streams to finish before the app's own shutdown drain runs (PRD §8).
+# streams to finish before the app's own shutdown drain runs.
 CMD ["uvicorn", "relay.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "30"]

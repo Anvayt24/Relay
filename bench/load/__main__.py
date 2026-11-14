@@ -11,6 +11,7 @@ k6 runs in a pinned ``grafana/k6`` image, so there is nothing to install.
 import argparse
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -56,11 +57,28 @@ def main() -> None:
         action="store_true",
         help="M1(b): cache on + Postgres/pgvector, unique prompts (embedding on every request)",
     )
+    parser.add_argument(
+        "--tracing",
+        action="store_true",
+        help="Phase 14: trace every request (OTLP to a collector) to measure tracing overhead",
+    )
+    parser.add_argument(
+        "--suffix",
+        help="results file suffix (default: _cache, _tracing or none), so a comparison run "
+        "never overwrites the committed M1 results",
+    )
     args = parser.parse_args()
     global VARY
     if args.cache:
         VARY = "1"
         COMPOSE.extend(["-f", str(HERE / "docker-compose.cache.yml")])
+    if args.tracing:
+        COMPOSE.extend(["-f", str(HERE / "docker-compose.tracing.yml")])
+    suffix = (
+        args.suffix
+        if args.suffix is not None
+        else ("_cache" if args.cache else "_tracing" if args.tracing else "")
+    )
     RESULTS.mkdir(parents=True, exist_ok=True)
     rates = [int(x) for x in args.rates.split(",")]
 
@@ -70,19 +88,31 @@ def main() -> None:
         "docker_cpus": ncpu,
         "runs": {},
         "cache": args.cache,
+        "tracing": args.tracing,
     }
     try:
         for n in (int(x) for x in args.replicas.split(",")):
             # Each container runs 2 worker processes (see the compose file).
             scale = f"api={n}"
             up = [*COMPOSE, "up", "-d", "--build", "--force-recreate", "--scale", scale, "--wait"]
-            run(up, {"REPLICA_COUNT": str(2 * n)})
+            try:
+                run(up, {"REPLICA_COUNT": str(2 * n)})
+            except subprocess.CalledProcessError as e:
+                # Recreating containers right after the previous run's `down` occasionally
+                # fails on Docker Desktop (a network or name still being released): once more.
+                print(f"compose up failed, retrying once: {e.stderr[-300:] if e.stderr else e}")
+                time.sleep(5)
+                run(up, {"REPLICA_COUNT": str(2 * n)})
             # Warm-up: connection pools, the page cache, Redis script loading.
             k6("warmup", "http://lb:8080", min(rates), "10s", "relay/auto")
             for rate in rates:
                 tag = f"{n}_{rate}"
-                direct = k6(f"direct_{tag}", "http://sim:8100", rate, args.duration, "sim-model")
-                through = k6(f"relay_{tag}", "http://lb:8080", rate, args.duration, "relay/auto")
+                direct = k6(
+                    f"direct_{tag}{suffix}", "http://sim:8100", rate, args.duration, "sim-model"
+                )
+                through = k6(
+                    f"relay_{tag}{suffix}", "http://lb:8080", rate, args.duration, "relay/auto"
+                )
                 d, r = trend(direct), trend(through)
                 m = through["metrics"]
                 report["runs"][f"{n}x{rate}"] = {
@@ -101,7 +131,6 @@ def main() -> None:
     finally:
         subprocess.run([*COMPOSE, "down", "-v"], check=False, capture_output=True)
 
-    suffix = "_cache" if args.cache else ""
     (RESULTS / f"load{suffix}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (RESULTS / f"summary{suffix}.md").write_text(markdown(report), encoding="utf-8")
 
@@ -109,6 +138,8 @@ def main() -> None:
 def markdown(report: dict[str, Any]) -> str:
     cache = bool(report.get("cache"))
     title = "M1(b): cache on, embedding on every request" if cache else "M1(a): passthrough"
+    if report.get("tracing"):
+        title += ", every request traced (OTLP, 100% sampled)"
     what = (
         "Postgres + pgvector sit behind the cache and every prompt is unique, so each request "
         "embeds, queries pgvector, calls the provider and writes the answer back: the heaviest "

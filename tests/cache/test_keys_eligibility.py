@@ -6,6 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from relay.admission.tokens import prompt_tokens
 from relay.cache import keys
 from relay.cache.eligibility import check
 from relay.config.tenants import TenantCache
@@ -137,7 +138,8 @@ def test_eligibility_table(
     payload = {"messages": [{"role": "user", "content": "a prompt of some length"}]}
     base = {"model": "relay/auto", "temperature": 0, **payload, **request_kwargs}
     base = {k: v for k, v in base.items() if v is not None}
-    e = check(ChatRequest.model_validate(base), policy, no_store=no_store)
+    req = ChatRequest.model_validate(base)
+    e = check(req, policy, no_store=no_store, prompt_tokens=prompt_tokens(req))
     assert (e.exact, e.semantic, e.reason) == (exact, semantic, reason)
 
 
@@ -145,7 +147,7 @@ def test_unset_temperature_is_eligible_only_by_tenant_opt_in() -> None:
     unset = ChatRequest.model_validate(
         {"model": "m", "messages": [{"role": "user", "content": "x"}]}
     )
-    assert not check(unset, TenantCache(enabled=True), no_store=False).exact
-    assert check(
-        unset, TenantCache(enabled=True, allow_unset_temperature=True), no_store=False
-    ).exact
+    n = prompt_tokens(unset)
+    assert not check(unset, TenantCache(enabled=True), no_store=False, prompt_tokens=n).exact
+    opted_in = TenantCache(enabled=True, allow_unset_temperature=True)
+    assert check(unset, opted_in, no_store=False, prompt_tokens=n).exact

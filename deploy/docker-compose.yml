@@ -1,6 +1,14 @@
-# Local stack for Relay. Start with `make up`, stop with `make down`.
-# Image versions are pinned on purpose: a floating tag (":latest") can change underneath
-# you and break `make reproduce`. Bump them deliberately.
+# Relay, self-hosted.
+#
+#   docker compose up -d                                  # gateway + Postgres + Redis
+#   docker compose --profile observability up -d          # ... plus Prometheus, Grafana, Tempo
+#
+# From the repository root (compose.yaml includes this file). Only the gateway is published,
+# and only on localhost unless RELAY_BIND says otherwise. Everything it needs to run is
+# generated on the first start and kept in the `relaydata` volume: see guide/self-hosting.md.
+#
+# Image versions are pinned on purpose: a floating tag (":latest") can change underneath you.
+# Bump them deliberately.
 
 name: relay
 
@@ -10,23 +18,23 @@ x-relay-image: &relay-image
   build:
     context: ..
     dockerfile: Dockerfile
-  environment:
-    RELAY_ENV: dev
-    RELAY_DATABASE_URL: postgresql://relay:relay@postgres:5432/relay
-    # HMAC secret for API-key hashes. A fixed value is fine for local dev only; production
-    # gets it from a secret manager. `python -m relay.auth` must use the same one.
-    RELAY_KEY_PEPPER: local-dev-pepper-change-me
-    # Shared admission state: rate limits, budgets, provider pauses (Phase 6).
+  environment: &relay-env
+    RELAY_ENV: ${RELAY_ENV:-prod}
+    RELAY_DATABASE_URL: postgresql://relay:${POSTGRES_PASSWORD:-relay}@postgres:5432/relay
+    # Shared admission state: rate limits, budgets, provider pauses.
     RELAY_REDIS_URL: redis://redis:6379/0
-  # Provider keys (GROQ_API_KEY, ...) from the repo's .env, if it exists. Never baked into
-  # the image.
+    RELAY_LOG_FORMAT: json
+    # Spans go to the collector when the observability profile is on (set in .env).
+    RELAY_OTEL_ENDPOINT: ${RELAY_OTEL_ENDPOINT:-}
+  # Provider keys (GROQ_API_KEY, ...) and any other RELAY_* setting from the repo's .env.
+  # Never baked into the image.
   env_file:
     - path: ../.env
       required: false
 
 services:
   # One-shot: applies SQL migrations, then exits. api waits for it to *succeed*
-  # (service_completed_successfully), so the requests table exists before the first request.
+  # (service_completed_successfully), so the tables exist before the first request.
   migrate:
     <<: *relay-image
     command: ["python", "-m", "relay.telemetry.migrate"]
@@ -37,11 +45,19 @@ services:
 
   api:
     <<: *relay-image
+    environment:
+      <<: *relay-env
+      # Secrets the gateway generates for itself live here, so a first run needs none.
+      RELAY_DATA_DIR: /data
+      # Metrics on their own port, which is not published; Prometheus scrapes it inside the
+      # compose network.
+      RELAY_METRICS_PORT: "9464"
     ports:
-      - "8000:8000"
+      - "${RELAY_BIND:-127.0.0.1}:${RELAY_PORT:-8000}:8000"
+    volumes:
+      - relaydata:/data
+    restart: unless-stopped
     depends_on:
-      # Relay itself can start and serve without Postgres (degradation matrix). This ordering
-      # is a local-dev convenience, so a fresh stack logs from its first request.
       migrate:
         condition: service_completed_successfully
       redis:
@@ -58,8 +74,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -68,12 +83,11 @@ services:
 
   postgres:
     image: pgvector/pgvector:0.8.0-pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: relay
-      POSTGRES_PASSWORD: relay   # local dev only
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relay}
       POSTGRES_DB: relay
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Scripts in this folder run once, when the data volume is first created.
@@ -84,23 +98,31 @@ services:
       timeout: 3s
       retries: 10
 
+  # ---- observability profile: metrics, traces and dashboards ---------------------------------
   otel-collector:
+    profiles: [observability]
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      - tempo
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
     # No healthcheck: the image is distroless (no shell, curl, or wget) so nothing can run a
     # probe inside it. `--wait` treats "running" as ready for services without a healthcheck.
 
+  # Trace store: the collector forwards spans here; Grafana reads them on :3200.
+  tempo:
+    profiles: [observability]
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+
   prometheus:
+    profiles: [observability]
     image: prom/prometheus:v2.55.0
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
     depends_on:
       api:
         condition: service_healthy
@@ -111,14 +133,17 @@ services:
       retries: 10
 
   grafana:
+    profiles: [observability]
     image: grafana/grafana:11.3.0
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin   # local dev only
+      # Set GRAFANA_PASSWORD in .env. Left empty, Grafana keeps its built-in password and asks
+      # you to change it at first login.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"   # the dashboards; localhost only
     depends_on:
       prometheus:
         condition: service_healthy
@@ -130,3 +155,4 @@ services:
 
 volumes:
   pgdata:
+  relaydata:

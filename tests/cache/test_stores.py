@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 import asyncpg
 import pytest
 
-from relay.cache.embed import HashEmbedder, cosine
+from relay.cache.embed import HashEmbedder
 from relay.cache.entry import CachedReply
 from relay.cache.exact import CacheUnavailable, MemoryExactStore, RedisExactStore
 from relay.cache.semantic import MemorySemanticStore, PgVectorStore, SemanticStore
@@ -97,8 +97,10 @@ async def contract(store: SemanticStore) -> None:
     near = await vec("capital of france today please")
     hit = await store.lookup(ns, near, threshold=0.7, max_tokens=100, guard="g")
     assert hit is not None and hit.reply.text == "Paris"  # its own namespace's entry only
+    stored = await vec("capital of france today")
+    # Vectors are L2-normalized, so cosine similarity is their dot product.
     assert hit.similarity == pytest.approx(
-        cosine(near, await vec("capital of france today")), abs=1e-3
+        sum(x * y for x, y in zip(near, stored, strict=True)), abs=1e-3
     )
     # Below the threshold: a miss.
     assert await store.lookup(ns, await vec("sourdough bread recipe"), threshold=0.7,
@@ -160,3 +162,59 @@ async def test_pgvector_expired_entries_are_not_returned(pg_store: PgVectorStore
     v = await vec("hello world")
     await pg_store.insert("ns", v, reply(), guard="g", ttl_s=0)  # already expired
     assert await pg_store.lookup("ns", v, threshold=0.5, max_tokens=100, guard="g") is None
+
+
+@pytest.mark.integration
+async def test_pgvector_sweep_deletes_only_expired_entries(pg_store: PgVectorStore) -> None:
+    # Found in review: expired rows were filtered out of lookups but never deleted.
+    v = await vec("hello world")
+    await pg_store.insert("ns", v, reply(), guard="g", ttl_s=0)  # already expired
+    await pg_store.insert("ns", v, reply(), guard="g", ttl_s=600)
+    assert await pg_store.sweep() == 1
+    assert await pg_store.sweep() == 0
+    assert await pg_store.lookup("ns", v, threshold=0.5, max_tokens=100, guard="g") is not None
+
+
+@pytest.mark.integration
+async def test_pgvector_connections_scan_the_index_iteratively(pg_store: PgVectorStore) -> None:
+    # Found in review: filtered HNSW lookups could miss a namespace's only match, because the
+    # setting that prevents it was documented but never applied. Every connection of the store
+    # must have it. (A test that makes Postgres pick the HNSW plan on purpose needs thousands
+    # of rows and planner flags; this checks the setting itself.)
+    pool = pg_store._need_pool()
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SHOW hnsw.iterative_scan") == "strict_order"
+
+
+# ---------------------------------------------------------------- bounded in-process stores
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_memory_exact_store_is_bounded() -> None:
+    # Found in review: an entry only left when its own key was read again.
+    clock = _Clock()
+    store = MemoryExactStore(clock, max_items=3)
+    await store.set("old", reply(), ttl_s=10)
+    clock.now = 20  # "old" has expired
+    for k in ("a", "b", "c", "d"):
+        await store.set(k, reply(), ttl_s=600)
+    assert len(store._items) == 3
+    assert await store.get("a") is None  # the oldest live entry made room
+    assert await store.get("d") is not None
+
+
+async def test_memory_semantic_store_is_bounded() -> None:
+    clock = _Clock()
+    store = MemorySemanticStore(clock, max_entries=3)
+    v = await vec("hello world")
+    await store.insert("ns", v, reply("expired"), guard="g", ttl_s=5)
+    clock.now = 10
+    for i in range(4):
+        await store.insert(f"ns{i % 2}", v, reply(f"r{i}"), guard="g", ttl_s=600 + i)
+    assert sum(len(e) for e in store._items.values()) == 3
+    assert "ns" not in store._items or store._items["ns"] == []

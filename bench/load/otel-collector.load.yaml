@@ -1,0 +1,21 @@
+# The load test's collector: receive and batch spans, then drop them (debug at basic prints
+# one line per batch). The point is the cost on Relay's side, not storing traces.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

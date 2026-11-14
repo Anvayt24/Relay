@@ -74,3 +74,13 @@ def test_shipped_routes_are_not_set_below_the_measured_threshold(route: str) -> 
     cache = config.routes[route].cache
     assert cache.lexical_guard  # the threshold was measured with the guard on
     assert cache.semantic_threshold >= measured
+
+
+def test_clopper_pearson_rule_of_three() -> None:
+    # Zero failures in n: the bound is 0.05 ** (1/n). About 300 clean hits to show >= 99%.
+    lower = evaluate.clopper_pearson_lower
+    assert lower(300, 300) == pytest.approx(0.05 ** (1 / 300), abs=1e-9)
+    assert lower(300, 300) > 0.99
+    assert lower(299, 300) < lower(300, 300)
+    assert lower(0, 10) == 0.0
+    assert math.isnan(lower(0, 0))

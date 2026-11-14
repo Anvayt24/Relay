@@ -1,0 +1,316 @@
+"""Where evidence lives: judged pairs, human labels and route cards (PRD §9.4).
+
+One protocol, two implementations, like the other stores:
+- ``MemoryEvidenceStore``: tests, and a gateway with no database (pairs then live only as long
+  as the process, which is fine for a demo and useless for decisions);
+- ``PostgresEvidenceStore``: the ``eval_pairs``, ``human_labels`` and ``route_cards`` tables.
+
+The gateway only **writes pairs** (from the shadow stage's background tasks) and **reads
+cards** (the card board, every few seconds). The evidence worker reads pairs and labels and
+writes cards. Neither ever runs on a request's path.
+
+The pool is created with ``min_size=0`` (as for the log sink): a database that is down at
+startup costs nothing until the first use, and every caller treats a failure as "no evidence
+right now", never as a request failure.
+"""
+
+import json
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, fields, replace
+from datetime import datetime
+from typing import Any, Protocol
+
+import asyncpg
+
+from relay.evidence.cards import JudgedPair, RouteCard
+from relay.evidence.pairs import EvalPair
+
+
+def judged(p: EvalPair) -> JudgedPair:
+    """The part of a pair a card decision reads (no text)."""
+    return JudgedPair(
+        pair_id=p.pair_id,
+        route=p.route or "",
+        comparison=p.comparison,
+        cohort=p.cohort,
+        judge_label=p.judge_label,
+        judge_model=p.judge_model,
+        judge_prompt_version=p.judge_prompt_version,
+        ts=p.ts,
+        policy_version=p.policy_version,
+    )
+
+
+@dataclass(frozen=True)
+class HumanLabel:
+    pair_id: str
+    label: str  # win | tie | loss
+    annotator: str
+    is_relabel: bool
+    ts: datetime
+
+
+class EvidenceStore(Protocol):
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None: ...
+    async def load_pairs(self) -> list[JudgedPair]: ...
+    async def import_labels(self, labels: Sequence[HumanLabel]) -> int: ...
+    async def load_cards(self) -> list[RouteCard]: ...
+
+    async def purge_expired_text(self, now: datetime) -> int:
+        """Delete the prompt and response text of every pair whose retention ended; the
+        verdict, the hashes and the labels stay. Returns how many pairs lost their text."""
+        ...
+
+    async def save_cards(self, cards: Sequence[RouteCard]) -> None:
+        """Replace the whole set of cards with ``cards``. A card the worker no longer computes
+        (a route that lost its evidence section, a cohort that vanished or merged) must go:
+        an upsert kept it, and the board kept enforcing it (found in review)."""
+        ...
+
+    async def start(self) -> None: ...
+    async def close(self) -> None: ...
+
+
+class MemoryEvidenceStore:
+    def __init__(self) -> None:
+        self.pairs: list[EvalPair] = []
+        self.extra: list[JudgedPair] = []  # pairs from elsewhere (calibration sets), for tests
+        self.labels: list[HumanLabel] = []
+        self.cards: dict[tuple[str, str, str], RouteCard] = {}
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None:
+        self.pairs.extend(rows)
+
+    async def load_pairs(self) -> list[JudgedPair]:
+        first: dict[str, HumanLabel] = {}
+        for lab in sorted(self.labels, key=lambda lab: lab.ts):
+            if not lab.is_relabel:
+                first.setdefault(lab.pair_id, lab)
+        out = []
+        for p in [*(judged(row) for row in self.pairs), *self.extra]:
+            human = first.get(p.pair_id)
+            if human is not None and p.human_label is None:
+                p = JudgedPair(**{**asdict(p), "human_label": human.label, "human_ts": human.ts})
+            out.append(p)
+        return out
+
+    async def import_labels(self, labels: Sequence[HumanLabel]) -> int:
+        known = {p.pair_id for p in self.pairs} | {p.pair_id for p in self.extra}
+        new = [lab for lab in labels if lab.pair_id in known]
+        self.labels.extend(new)
+        return len(new)
+
+    async def load_cards(self) -> list[RouteCard]:
+        return list(self.cards.values())
+
+    async def save_cards(self, cards: Sequence[RouteCard]) -> None:
+        self.cards = {card.key: card for card in cards}
+
+    async def purge_expired_text(self, now: datetime) -> int:
+        expired = [
+            i
+            for i, p in enumerate(self.pairs)
+            if p.text_expires_at is not None and p.text_expires_at <= now
+        ]
+        for i in expired:
+            self.pairs[i] = replace(
+                self.pairs[i],
+                prompt_text=None,
+                candidate_text=None,
+                reference_text=None,
+                judge_reason=None,
+                text_retained=False,
+                text_expires_at=None,
+            )
+        return len(expired)
+
+
+# One column per EvalPair field: the type and the table can't drift apart.
+_PAIR_COLUMNS = [f.name for f in fields(EvalPair)]
+
+# The first non-relabel human label of each pair, joined on. Pairs without a route (pilot and
+# public calibration sets) are loaded too: they calibrate the judge (cards.calibration_by_judge).
+_LOAD_PAIRS = """
+SELECT p.pair_id, coalesce(p.route, '') AS route, p.comparison, p.cohort, p.judge_label,
+       p.judge_model, p.judge_prompt_version, p.ts, p.policy_version,
+       h.label AS human_label, h.ts AS human_ts
+FROM eval_pairs p
+LEFT JOIN LATERAL (
+    SELECT label, ts FROM human_labels
+    WHERE pair_id = p.pair_id AND NOT is_relabel
+    ORDER BY ts LIMIT 1
+) h ON true
+ORDER BY p.ts
+"""
+
+# Shadow pairs a human can label: this route's, with their text kept (`full`-logging
+# tenants only), and not labeled yet. A uniform random sample, because the rectifier assumes
+# the labeled pairs are a random subset of the judged ones (oldest-first would label only the
+# oldest policy's traffic).
+_LABELABLE_PAIRS = f"""
+SELECT {", ".join(_PAIR_COLUMNS)} FROM eval_pairs p
+WHERE p.route = $1 AND p.text_retained AND p.prompt_text IS NOT NULL
+  AND p.candidate_text IS NOT NULL AND p.reference_text IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM human_labels h WHERE h.pair_id = p.pair_id AND NOT h.is_relabel)
+ORDER BY random()
+LIMIT $2
+"""
+
+_UPSERT_CARD = """
+INSERT INTO route_cards (route, comparison, cohort, state, estimate, ci_low, ci_high, floor,
+                         n_judge, n_human, look, recommended_action, policy_version, card,
+                         updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)
+ON CONFLICT (route, comparison, cohort) DO UPDATE SET
+    state = EXCLUDED.state, estimate = EXCLUDED.estimate, ci_low = EXCLUDED.ci_low,
+    ci_high = EXCLUDED.ci_high, floor = EXCLUDED.floor, n_judge = EXCLUDED.n_judge,
+    n_human = EXCLUDED.n_human, look = EXCLUDED.look,
+    recommended_action = EXCLUDED.recommended_action, policy_version = EXCLUDED.policy_version,
+    card = EXCLUDED.card, updated_at = EXCLUDED.updated_at
+"""
+
+
+class PostgresEvidenceStore:
+    def __init__(self, dsn: str, *, command_timeout_s: float = 10.0) -> None:
+        self._dsn = dsn
+        self._command_timeout_s = command_timeout_s
+        self._pool: asyncpg.Pool | None = None
+
+    async def start(self) -> None:
+        self._pool = await asyncpg.create_pool(
+            self._dsn, min_size=0, max_size=2, command_timeout=self._command_timeout_s
+        )
+
+    async def close(self) -> None:
+        if self._pool is not None:
+            await self._pool.close()
+
+    def _need_pool(self) -> asyncpg.Pool:
+        if self._pool is None:
+            raise RuntimeError("PostgresEvidenceStore used before start()")
+        return self._pool
+
+    async def write_pairs(self, rows: Sequence[EvalPair]) -> None:
+        records = [tuple(getattr(r, c) for c in _PAIR_COLUMNS) for r in rows]
+        async with self._need_pool().acquire() as conn:
+            await conn.copy_records_to_table("eval_pairs", records=records, columns=_PAIR_COLUMNS)
+
+    async def load_pairs(self) -> list[JudgedPair]:
+        async with self._need_pool().acquire() as conn:
+            rows = await conn.fetch(_LOAD_PAIRS)
+        return [JudgedPair(**dict(r)) for r in rows]
+
+    async def import_pairs(self, rows: Sequence[EvalPair]) -> int:
+        """Offline pairs (a pilot or public set), idempotently: a pair already stored is
+        skipped, so an import can be re-run. Returns how many were new."""
+        columns = ", ".join(_PAIR_COLUMNS)
+        values = ", ".join(f"${i}" for i in range(1, len(_PAIR_COLUMNS) + 1))
+        query = (
+            f"INSERT INTO eval_pairs ({columns}) VALUES ({values}) ON CONFLICT (pair_id) DO NOTHING"
+        )
+        async with self._need_pool().acquire() as conn, conn.transaction():
+            before = await conn.fetchval("SELECT count(*) FROM eval_pairs")
+            await conn.executemany(
+                query, [tuple(getattr(r, c) for c in _PAIR_COLUMNS) for r in rows]
+            )
+            after = await conn.fetchval("SELECT count(*) FROM eval_pairs")
+        return int(after - before)
+
+    async def labelable_pairs(self, route: str, limit: int) -> list[EvalPair]:
+        """A random sample of this route's unlabeled shadow pairs that still have their text,
+        for ``python -m relay.evidence.label export``."""
+        async with self._need_pool().acquire() as conn:
+            rows = await conn.fetch(_LABELABLE_PAIRS, route, limit)
+        return [EvalPair(**dict(r)) for r in rows]
+
+    async def import_labels(self, labels: Sequence[HumanLabel]) -> int:
+        # Labels for pairs that aren't in the database are skipped (the foreign key would
+        # reject them anyway); re-importing the same file adds nothing twice.
+        async with self._need_pool().acquire() as conn, conn.transaction():
+            known = {
+                r["pair_id"]
+                for r in await conn.fetch(
+                    "SELECT pair_id FROM eval_pairs WHERE pair_id = ANY($1::text[])",
+                    [lab.pair_id for lab in labels],
+                )
+            }
+            existing = {
+                (r["pair_id"], r["annotator"], r["is_relabel"])
+                for r in await conn.fetch(
+                    "SELECT pair_id, annotator, is_relabel FROM human_labels "
+                    "WHERE pair_id = ANY($1::text[])",
+                    list(known),
+                )
+            }
+            new = [
+                lab
+                for lab in labels
+                if lab.pair_id in known
+                and (lab.pair_id, lab.annotator, lab.is_relabel) not in existing
+            ]
+            await conn.executemany(
+                "INSERT INTO human_labels (pair_id, label, annotator, is_relabel, ts) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                [(lab.pair_id, lab.label, lab.annotator, lab.is_relabel, lab.ts) for lab in new],
+            )
+        return len(new)
+
+    async def purge_expired_text(self, now: datetime) -> int:
+        async with self._need_pool().acquire() as conn:
+            status = await conn.execute(
+                "UPDATE eval_pairs SET prompt_text = NULL, candidate_text = NULL,"
+                " reference_text = NULL, judge_reason = NULL, text_retained = false,"
+                " text_expires_at = NULL"
+                " WHERE text_expires_at <= $1",
+                now,
+            )
+        return int(status.split()[-1])  # "UPDATE <n>"
+
+    async def load_cards(self) -> list[RouteCard]:
+        async with self._need_pool().acquire() as conn:
+            rows = await conn.fetch("SELECT card FROM route_cards")
+        return [card_from_dict(json.loads(r["card"])) for r in rows]
+
+    async def save_cards(self, cards: Sequence[RouteCard]) -> None:
+        # One transaction: readers (the boards) see the old set or the new one, never neither.
+        async with self._need_pool().acquire() as conn, conn.transaction():
+            await conn.execute("DELETE FROM route_cards")
+            await conn.executemany(
+                _UPSERT_CARD,
+                [
+                    (
+                        c.route,
+                        c.comparison,
+                        c.cohort,
+                        c.state,
+                        c.estimate,
+                        c.ci[0] if c.ci else None,
+                        c.ci[1] if c.ci else None,
+                        c.floor,
+                        c.n_judge,
+                        c.n_human,
+                        c.look,
+                        c.recommended_action,
+                        c.policy_version,
+                        json.dumps(c.as_dict()),
+                        c.updated_at,
+                    )
+                    for c in cards
+                ],
+            )
+
+
+def card_from_dict(data: dict[str, Any]) -> RouteCard:
+    # Only the fields RouteCard has now: a card saved by an older version may carry a field
+    # since removed (w_self, cost_per_1k_requests), and the worker rewrites every card anyway.
+    known = {f.name for f in fields(RouteCard)}
+    data = {k: v for k, v in data.items() if k in known}
+    data["ci"] = tuple(data["ci"]) if data.get("ci") else None
+    data["updated_at"] = datetime.fromisoformat(data["updated_at"])
+    return RouteCard(**data)

@@ -1,4 +1,4 @@
-"""Error taxonomy (PRD Appendix B) and the two exception types that carry it.
+"""Error taxonomy and the two exception types that carry it.
 
 There are two kinds of error, raised at different layers:
 
@@ -20,7 +20,7 @@ from typing import Literal, Self
 
 
 class ErrorClass(StrEnum):
-    # Provider-side classes (PRD Appendix B). What Relay does about each one (retry, fall
+    # Provider-side classes. What Relay does about each one (retry, fall
     # back, count toward the breaker) is in relay/reliability/policy.py.
     RATE_LIMITED = "rate_limited"
     QUOTA_EXHAUSTED = "quota_exhausted"
@@ -39,15 +39,17 @@ class ErrorClass(StrEnum):
     UNSUPPORTED_PARAMETER = "unsupported_parameter"
     INTERNAL_ERROR = "internal_error"
     INVALID_API_KEY = "invalid_api_key"  # 401: OpenAI's own code for a bad key
+    REQUEST_TOO_LARGE = "request_too_large"  # 413: the body is over RELAY_MAX_BODY_BYTES
     AUTH_UNAVAILABLE = "auth_unavailable"  # 503: the key store can't answer right now
-    # Admission (Phase 6): Relay itself refuses, before or instead of calling a provider.
+    # Admission: Relay itself refuses, before or instead of calling a provider.
     TENANT_RATE_LIMITED = "tenant_rate_limited"  # 429: the tenant's RPM/TPM
+    CLIENT_RATE_LIMITED = "client_rate_limited"  # 429: one client address over per_ip_rpm
     QUEUE_FULL = "queue_full"  # 429: too many requests already waiting
     QUEUE_TIMEOUT = "queue_timeout"  # 429: waited the class's max for a slot
     PROVIDER_PAUSED = "provider_paused"  # 429: the provider said "slow down"; all replicas wait
     BUDGET_EXCEEDED = "budget_exceeded"  # 429: the tenant's daily budget is spent
     BUDGET_UNAVAILABLE = "budget_unavailable"  # 503: can't check the budget (Redis down)
-    # Reliability (Phase 7): Relay tried, retried and fell back as far as policy allows.
+    # Reliability: Relay tried, retried and fell back as far as policy allows.
     NO_USABLE_FALLBACK = "no_usable_fallback"  # 503: every candidate failed or was unusable
     DEADLINE_EXCEEDED = "deadline_exceeded"  # 504: the request's deadline ran out first
 
@@ -78,10 +80,11 @@ UPSTREAM_STATUS: dict[ErrorClass, int] = {
 
 # Errors a client *should* retry, after Retry-After: Relay refused for load reasons and has not
 # retried anything itself. Every other error says x-should-retry: false, because Relay is the
-# single retry owner (FR-1) or because retrying cannot help (budget spent until midnight).
+# single retry owner or because retrying cannot help (budget spent until midnight).
 CLIENT_RETRYABLE: frozenset[ErrorClass] = frozenset(
     {
         ErrorClass.TENANT_RATE_LIMITED,
+        ErrorClass.CLIENT_RATE_LIMITED,
         ErrorClass.QUEUE_FULL,
         ErrorClass.QUEUE_TIMEOUT,
         ErrorClass.PROVIDER_PAUSED,
@@ -91,17 +94,13 @@ CLIENT_RETRYABLE: frozenset[ErrorClass] = frozenset(
 
 @dataclass(frozen=True)
 class ProviderSignal:
-    """Rate-limit hints from a provider response. Phase 4 adapters fill this in from headers
-    such as ``Retry-After``; Phase 6 admission reads it to pause the right scope."""
+    """Rate-limit hints from a provider response. Adapters fill this in from headers
+    such as ``Retry-After``; admission reads it to pause the right scope."""
 
     retry_after_s: float | None = None
     # Providers enforce limits per model or per account/key; pausing the wrong scope either
-    # keeps hammering a limit or idles healthy models (PRD FR-2, FR-4).
+    # keeps hammering a limit or idles healthy models.
     limit_scope: Literal["model", "account"] | None = None
-    # What the provider says is left in the current window (x-ratelimit-remaining-*), when it
-    # says. Admission (Phase 6) can slow down *before* the 429 instead of after it.
-    remaining_requests: int | None = None
-    remaining_tokens: int | None = None
 
 
 class ProviderError(Exception):

@@ -1,0 +1,170 @@
+"""Structured logs that carry the request (PRD FR-8: "request ID propagated through logs").
+
+Every log record emitted while a request is being handled gets that request's
+``request_id``, and the ``trace_id`` / ``span_id`` of the current span, so a log line leads
+straight to the request's trace in Tempo and its row in Postgres.
+
+How it gets there without passing anything around:
+- ``REQUEST_ID`` is a ``ContextVar``. The request-ID middleware sets it for the duration of the
+  request; asyncio copies context into tasks, so everything the request awaits sees it.
+- ``RequestContextFilter`` reads it (and the current OTel span) and puts the ids on every
+  record, whichever logger emitted it.
+- ``JsonFormatter`` writes one JSON object per line: easy to ship, grep and parse.
+
+``RELAY_LOG_FORMAT=text`` keeps human-readable lines (the ids at the end) for local runs.
+
+**Never written on the event loop** (CLAUDE.md: "logging is never on the hot path"; found in
+review: the handler wrote to stderr from the loop). The handler on the loggers is a
+``QueueHandler``: on the caller's thread it only adds the ids (they live in contextvars, so it
+must happen there), renders the message and puts the record on a bounded queue. A
+``QueueListener`` thread formats it and writes it. A full queue drops the line and counts it
+(``relay_log_lines_dropped_total``) instead of blocking the loop.
+"""
+
+import atexit
+import copy
+import json
+import logging
+import queue
+import sys
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from logging.handlers import QueueHandler, QueueListener
+from typing import TYPE_CHECKING, Any
+
+from opentelemetry import trace
+from prometheus_client import Counter
+
+if TYPE_CHECKING:
+    from relay.settings import Settings
+
+REQUEST_ID: ContextVar[str | None] = ContextVar("relay_request_id", default=None)
+
+# The loggers uvicorn configures itself (with propagate=False): ours replace their handlers.
+_UVICORN = ("uvicorn", "uvicorn.error", "uvicorn.access")
+# Libraries that log every HTTP call at INFO. Logging is synchronous I/O, and one line per
+# upstream call would put logging on the request path (FR-8), so they are held at WARNING.
+_CHATTY = ("httpx", "httpcore", "huggingface_hub", "urllib3")
+MAX_QUEUED = 10_000
+
+DROPPED = Counter(
+    "relay_log_lines_dropped_total", "Log lines dropped because the log queue was full."
+)
+
+
+class RequestContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = REQUEST_ID.get()
+        span = trace.get_current_span().get_span_context()
+        record.trace_id = format(span.trace_id, "032x") if span.is_valid else None
+        record.span_id = format(span.span_id, "016x") if span.is_valid else None
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        out: dict[str, Any] = {
+            "ts": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "request_id": getattr(record, "request_id", None),
+            "trace_id": getattr(record, "trace_id", None),
+            "span_id": getattr(record, "span_id", None),
+        }
+        if record.exc_info:
+            out["exc_info"] = self.formatException(record.exc_info)
+        elif record.exc_text:  # rendered before the record crossed the queue
+            out["exc_info"] = record.exc_text
+        return json.dumps(out, ensure_ascii=False)
+
+
+TEXT_FORMAT = (
+    "%(asctime)s %(levelname)s %(name)s: %(message)s "
+    "[request_id=%(request_id)s trace_id=%(trace_id)s]"
+)
+
+
+class _StderrHandler(logging.StreamHandler):  # type: ignore[type-arg]
+    """Writes to whatever ``sys.stderr`` is *now*. A plain StreamHandler keeps the stream it
+    was built with; anything that swaps stderr (test runners, some process managers) would
+    then leave it writing to a closed file."""
+
+    @property
+    def stream(self) -> object:
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value: object) -> None:
+        return None
+
+
+class _QueueHandler(QueueHandler):
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        # Render the message now (its args may change or not survive the trip), and the
+        # traceback as text (exc_info holds frames); the listener's formatter does the rest.
+        record = copy.copy(record)
+        record.message = record.getMessage()
+        record.msg, record.args = record.message, None
+        if record.exc_info:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+            record.exc_info = None
+        return record
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            DROPPED.inc()
+
+
+_listener: QueueListener | None = None
+
+
+def _stop_listener() -> None:
+    """Flush what is queued and stop the writer thread (at exit, or before replacing it)."""
+    global _listener
+    if _listener is not None:
+        _listener.stop()
+        _listener = None
+
+
+atexit.register(_stop_listener)
+
+
+def make_handler(fmt: str) -> logging.Handler:
+    """The handler for the loggers: enqueue only. Starts the thread that writes the lines."""
+    global _listener
+    _stop_listener()
+    writer = _StderrHandler()
+    writer.setFormatter(JsonFormatter() if fmt == "json" else logging.Formatter(TEXT_FORMAT))
+    lines: queue.Queue[logging.LogRecord] = queue.Queue(MAX_QUEUED)
+    _listener = QueueListener(lines, writer)
+    _listener.start()
+    handler = _QueueHandler(lines)
+    handler.addFilter(RequestContextFilter())
+    handler.set_name("relay")
+    return handler
+
+
+def writer_formatter() -> logging.Formatter | None:
+    """The formatter of the thread that writes the lines (for tests)."""
+    if _listener is None or not _listener.handlers:
+        return None
+    return _listener.handlers[0].formatter
+
+
+def configure_logging(settings: "Settings") -> None:
+    """Install Relay's handler on the root logger and on uvicorn's own loggers. Idempotent:
+    a second app in the same process (tests) replaces the handler instead of adding one."""
+    handler = make_handler(settings.log_format)
+    level = logging.getLevelName(settings.log_level.upper())
+    for name in ("", *_UVICORN):
+        log = logging.getLogger(name)
+        for old in [h for h in log.handlers if h.get_name() == "relay" or name in _UVICORN]:
+            log.removeHandler(old)
+        log.addHandler(handler)
+        if name == "":
+            log.setLevel(level)
+    for name in _CHATTY:
+        logging.getLogger(name).setLevel(logging.WARNING)

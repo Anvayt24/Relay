@@ -211,7 +211,9 @@ def _stop(proc: subprocess.Popen[bytes]) -> None:
 
 @contextmanager
 def workdir() -> Any:
-    with tempfile.TemporaryDirectory(prefix="relay-chaos-") as d:
+    # On Windows a just-stopped child can still hold a file for a moment, and failing to delete a
+    # scratch directory must not throw away a scenario's results.
+    with tempfile.TemporaryDirectory(prefix="relay-chaos-", ignore_cleanup_errors=True) as d:
         yield Path(d)
 
 

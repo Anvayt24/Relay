@@ -1,0 +1,414 @@
+{
+  "what": "router evaluation on the held-out test split (ADR 0018)",
+  "world": "real",
+  "dataset": {
+    "rows": 150,
+    "splits": {
+      "train": 96,
+      "val": 27,
+      "test": 27
+    },
+    "test_gold": 0,
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "label_note": "y = 1 if the judge says the cheap answer is win-or-tie vs the strong answer. y_true is null unless a human labeled the pair (then it is the gold subset). The judge is uncalibrated: nothing here may drive a decision.",
+    "sha256": {
+      "prompts.jsonl": "021b50c12fc43cbd3bb3b1855c06fa4d028fb6ae25efd76d47227e2f791742ba",
+      "embeddings.npy": "373ba4de82f4fde3119a7972c3935713b1982e229bc74ed472eff109128345fe"
+    }
+  },
+  "artifact": {
+    "version": "router-real-v1",
+    "sha256": "000941f3f330502e932ecf99875909da58c9969c79002c1cc9c1587689e0194c",
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "threshold_in_artifact": 0.76
+  },
+  "targets": {
+    "quality_lower_bound_floor": 0.95,
+    "cheap_share": 0.4
+  },
+  "threshold_selection": {
+    "threshold": 0.76,
+    "met": true,
+    "validation": {
+      "cheap_share": 0.037037037037037035,
+      "quality_lower_95": 1.0,
+      "basis": "bootstrap_judge_only"
+    }
+  },
+  "test": {
+    "headline": {
+      "threshold": 0.76,
+      "cheap_share": 0.037037037037037035,
+      "quality_basis": "judge_only",
+      "quality": 1.0,
+      "quality_lower_95": 1.0,
+      "judge_only_quality": 1.0,
+      "meets_quality_floor": true,
+      "meets_share_target": false,
+      "cost_saved_fraction_illustrative": 0.018518518518518517
+    },
+    "baselines": {
+      "always_strong": {
+        "share_cheap": 0.0,
+        "quality": 1.0
+      },
+      "always_cheap": {
+        "share_cheap": 1.0,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      "random": [
+        {
+          "share_cheap": 0.0,
+          "quality": 1.0,
+          "ci_low": 1.0,
+          "ci_high": 1.0
+        },
+        {
+          "share_cheap": 0.1,
+          "quality": 0.9555555555555555,
+          "ci_low": 0.9370370370370369,
+          "ci_high": 0.974074074074074
+        },
+        {
+          "share_cheap": 0.2,
+          "quality": 0.9111111111111112,
+          "ci_low": 0.8740740740740741,
+          "ci_high": 0.9481481481481481
+        },
+        {
+          "share_cheap": 0.3,
+          "quality": 0.8666666666666666,
+          "ci_low": 0.811111111111111,
+          "ci_high": 0.9222222222222222
+        },
+        {
+          "share_cheap": 0.4,
+          "quality": 0.8222222222222223,
+          "ci_low": 0.7481481481481482,
+          "ci_high": 0.8962962962962964
+        },
+        {
+          "share_cheap": 0.5,
+          "quality": 0.7777777777777778,
+          "ci_low": 0.6851851851851852,
+          "ci_high": 0.8703703703703703
+        },
+        {
+          "share_cheap": 0.6,
+          "quality": 0.7333333333333333,
+          "ci_low": 0.6222222222222221,
+          "ci_high": 0.8444444444444443
+        },
+        {
+          "share_cheap": 0.7,
+          "quality": 0.688888888888889,
+          "ci_low": 0.5592592592592593,
+          "ci_high": 0.8185185185185184
+        },
+        {
+          "share_cheap": 0.8,
+          "quality": 0.6444444444444444,
+          "ci_low": 0.49629629629629624,
+          "ci_high": 0.7925925925925925
+        },
+        {
+          "share_cheap": 0.9,
+          "quality": 0.6000000000000001,
+          "ci_low": 0.4333333333333333,
+          "ci_high": 0.7666666666666667
+        },
+        {
+          "share_cheap": 1.0,
+          "quality": 0.5555555555555556,
+          "ci_low": 0.37037037037037035,
+          "ci_high": 0.7407407407407407
+        }
+      ],
+      "oracle": {
+        "share_cheap": 0.5555555555555556,
+        "quality": 1.0,
+        "note": "sends cheap exactly when the cheap answer is win-or-tie: an upper bound"
+      }
+    },
+    "curve": [
+      {
+        "threshold": 0.0,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.05,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.1,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.15,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.2,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.25,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.3,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.35,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.4,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.45,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.5,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.55,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.6,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.65,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.7,
+        "share_cheap": 1.0,
+        "share_strong": 0.0,
+        "random_quality_at_share": 0.5555555555555556,
+        "quality": 0.5555555555555556,
+        "ci_low": 0.37037037037037035,
+        "ci_high": 0.7407407407407407,
+        "lower_95_one_sided": 0.4055555555555556
+      },
+      {
+        "threshold": 0.75,
+        "share_cheap": 0.8518518518518519,
+        "share_strong": 0.14814814814814814,
+        "random_quality_at_share": 0.6213991769547325,
+        "quality": 0.5925925925925926,
+        "ci_low": 0.4074074074074074,
+        "ci_high": 0.7777777777777778,
+        "lower_95_one_sided": 0.4444444444444444
+      },
+      {
+        "threshold": 0.8,
+        "share_cheap": 0.0,
+        "share_strong": 1.0,
+        "random_quality_at_share": 1.0,
+        "quality": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "lower_95_one_sided": 1.0
+      },
+      {
+        "threshold": 0.85,
+        "share_cheap": 0.0,
+        "share_strong": 1.0,
+        "random_quality_at_share": 1.0,
+        "quality": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "lower_95_one_sided": 1.0
+      },
+      {
+        "threshold": 0.9,
+        "share_cheap": 0.0,
+        "share_strong": 1.0,
+        "random_quality_at_share": 1.0,
+        "quality": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "lower_95_one_sided": 1.0
+      },
+      {
+        "threshold": 0.95,
+        "share_cheap": 0.0,
+        "share_strong": 1.0,
+        "random_quality_at_share": 1.0,
+        "quality": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "lower_95_one_sided": 1.0
+      },
+      {
+        "threshold": 1.0,
+        "share_cheap": 0.0,
+        "share_strong": 1.0,
+        "random_quality_at_share": 1.0,
+        "quality": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "lower_95_one_sided": 1.0
+      }
+    ],
+    "auc": 0.5055555555555555,
+    "families": {
+      "lang=latin,len=medium,code=false,tools=false": {
+        "n": 2,
+        "router_cheap_share": 0.5,
+        "cheap_win_or_tie_rate": 1.0
+      },
+      "lang=latin,len=short,code=false,tools=false": {
+        "n": 25,
+        "router_cheap_share": 0.0,
+        "cheap_win_or_tie_rate": 0.52
+      }
+    },
+    "calibration": [
+      {
+        "mean_score": 0.7459028201563892,
+        "observed_win_or_tie": 0.6666666666666666,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7498598508114146,
+        "observed_win_or_tie": 1.0,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7506535297659964,
+        "observed_win_or_tie": 0.5,
+        "n": 2
+      },
+      {
+        "mean_score": 0.7512393465563859,
+        "observed_win_or_tie": 0.3333333333333333,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7516728640202482,
+        "observed_win_or_tie": 0.3333333333333333,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7524024719103218,
+        "observed_win_or_tie": 0.0,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7533366647584853,
+        "observed_win_or_tie": 0.3333333333333333,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7549859202114528,
+        "observed_win_or_tie": 0.5,
+        "n": 2
+      },
+      {
+        "mean_score": 0.7564815202021501,
+        "observed_win_or_tie": 0.6666666666666666,
+        "n": 3
+      },
+      {
+        "mean_score": 0.7597037004477613,
+        "observed_win_or_tie": 1.0,
+        "n": 3
+      }
+    ]
+  }
+}

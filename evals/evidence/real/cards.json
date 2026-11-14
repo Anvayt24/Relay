@@ -1,0 +1,30 @@
+[
+  {
+    "route": "check",
+    "cohort": "all",
+    "comparison": "cheap_vs_strong",
+    "estimate": 0.9310344827586207,
+    "ci": null,
+    "floor": 0.9,
+    "n_judge": 29,
+    "n_human": 0,
+    "judge": "groq/strong@v1",
+    "judge_kappa": null,
+    "state": "uncalibrated",
+    "recommended_action": "none",
+    "look": 2,
+    "max_looks": 3,
+    "policy_version": "static-v0",
+    "updated_at": "2026-10-28T17:46:37.786609+00:00",
+    "metric": "win_or_tie_rate",
+    "rectifier_scope": "pooled",
+    "interval": "wald",
+    "reason": "judge has not passed the M7 gate; estimate is judge-only",
+    "samples_needed": null,
+    "lam": null,
+    "ess_gain": null,
+    "n_excluded": 0,
+    "w_self": null,
+    "cost_per_1k_requests": null
+  }
+]

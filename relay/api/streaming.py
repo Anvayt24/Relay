@@ -2,7 +2,7 @@
 
 By the time this response exists, the pipeline has already primed the stream (the first
 content chunk is buffered), so committing ``200 OK`` and the headers is safe. From here on,
-FR-5's mid-stream policy applies:
+the mid-stream policy applies:
 
 - **Success:** the chunks, then (only if the client asked) the usage chunk, then ``[DONE]``.
 - **Failure after the commit** (provider error or idle timeout): an SSE error payload,
@@ -34,6 +34,7 @@ from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from relay.admission.tokens import text_tokens
+from relay.api.decision import decision_fields
 from relay.api.sse import DONE, encode_chunk, encode_error
 from relay.config.pricing import usd
 from relay.pipeline.context import RequestContext
@@ -57,7 +58,7 @@ STREAM_HEADERS = {
 
 
 class OpenStreams:
-    """How many streaming responses are in flight, so shutdown can wait for them (PRD §8).
+    """How many streaming responses are in flight, so shutdown can wait for them.
 
     An Event rather than a polling loop: shutdown wakes up the moment the last stream ends.
     """
@@ -175,7 +176,7 @@ class RelayStreamingResponse(StreamingResponse):
                 self._ctx.finish_reason = choice.finish_reason
 
     def _relay_extension(self) -> dict[str, str | bool]:
-        # Extra top-level key on the final usage chunk (FR-1). OpenAI SDKs ignore unknown
+        # Extra top-level key on the final usage chunk. OpenAI SDKs ignore unknown
         # fields. The cost lives here because a header can't carry it: headers were sent with
         # the first chunk, before the usage (and so the cost) was known.
         served = self._ctx.served_by
@@ -192,4 +193,5 @@ class RelayStreamingResponse(StreamingResponse):
         if self._ctx.cost is not None:
             extension["cost_usd"] = usd(self._ctx.cost.billed_nano)
             extension["list_cost_usd"] = usd(self._ctx.cost.list_nano)
+        extension.update(decision_fields(self._ctx))
         return extension

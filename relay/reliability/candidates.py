@@ -15,6 +15,8 @@ Then the tenant's policy filters and orders the fallbacks:
   has failed or been skipped.
 - **explicit model** (``reason == "explicit"``): no fallbacks at all, unless the tenant opted
   in with ``fallback_on_explicit_model`` (ADR 0011).
+- **shadow call** (``reason == "shadow"``, the evidence engine): never a fallback. Evidence
+  about model X must come from model X (ADR 0022).
 
 This is a *static* plan: what the config and policy allow. Whether a candidate is usable
 *right now* (paused, breaker open, out of capacity, deadline) is decided per attempt by the
@@ -63,6 +65,8 @@ def plan_candidates(
     edge_states: EdgeStateSource,
 ) -> list[Candidate]:
     primary = Candidate(decision.model, depth=0)
+    if decision.reason == "shadow":
+        return [primary]
     if decision.reason == "explicit" and not tenant.fallback_on_explicit_model:
         return [primary]
 

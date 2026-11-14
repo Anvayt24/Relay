@@ -1,0 +1,27 @@
+# Development additions to deploy/docker-compose.yml (used by `make up`).
+#
+# Publishes Postgres and Redis on localhost so the integration tests and `make migrate` can
+# reach them, runs the gateway in dev mode, and gives it a fixed pepper so keys made with
+# `python -m relay.auth` on the host match. Never use this file on a shared machine.
+
+services:
+  api:
+    environment:
+      RELAY_ENV: dev
+      RELAY_KEY_PEPPER: local-dev-pepper-change-me
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+  prometheus:
+    ports:
+      - "127.0.0.1:9090:9090"
+  tempo:
+    ports:
+      - "127.0.0.1:3200:3200"
+  otel-collector:
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"

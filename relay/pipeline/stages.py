@@ -5,21 +5,34 @@ Each stage is a small class with its dependencies passed into ``__init__``. Noth
 up globally, so a test builds a stage with exactly the router, providers or writer it wants.
 """
 
+import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING
 
-from relay.config.schema import RelayConfig
+from prometheus_client import Counter
+
 from relay.pipeline.context import RequestContext
 from relay.pipeline.stage import Continue, Outcome, Reject, ShortCircuit, StageResult
 from relay.routing.base import Router
 from relay.routing.static import model_not_found
 from relay.schemas.errors import ErrorClass, RelayError
+from relay.telemetry import tracing
 from relay.telemetry.log_writer import AttemptRow, LogRow, LogWriter
+from relay.telemetry.metrics import record_request
 
 if TYPE_CHECKING:
     # The dispatcher imports this package's context and streaming modules; importing it at
     # runtime here would be circular. ProviderStage only needs it as a type.
     from relay.reliability.dispatch import ReliableDispatcher
+
+logger = logging.getLogger(__name__)
+
+SHADOW_DECISIONS = Counter(
+    "relay_policy_shadow_decisions_total",
+    "Decisions made by a shadow policy's router (logged, never applied).",
+    ["result"],  # ok | error
+)
 
 
 class LogStage:
@@ -41,6 +54,10 @@ class LogStage:
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
         # enqueue() is synchronous and O(1); the database write happens later, elsewhere.
         self._writer.enqueue(row_from_context(ctx, outcome))
+        # Phase 14: the request-level metrics and the trace's outcome attributes, from the
+        # same finished context as the log row (ADR 0025).
+        record_request(ctx, outcome, time.monotonic() - ctx.started_at)
+        tracing.annotate(ctx, outcome)
 
 
 def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
@@ -92,6 +109,12 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
         degraded=ctx.degraded,
         policy_version=ctx.policy_version,
         cache_status=ctx.cache.status if ctx.cache else None,
+        router_reason=ctx.router_reason,
+        router_score=ctx.router_score,
+        canary_arm=ctx.canary_arm,
+        shadow_policy_version=ctx.shadow_policy_version,
+        shadow_tier=ctx.shadow_tier,
+        shadow_score=ctx.shadow_score,
         attempts=tuple(
             AttemptRow(
                 request_id=ctx.request_id,
@@ -119,25 +142,62 @@ class RouteStage:
 
     name = "route"
 
-    def __init__(self, router: Router, config: RelayConfig) -> None:
-        self._router = router
-        self._config = config
+    def __init__(self) -> None:
+        # Shadow decisions in flight, by request context (see _shadow_decision).
+        self._shadow: dict[int, asyncio.Task[None]] = {}
 
     async def process(self, ctx: RequestContext) -> StageResult:
+        # The router of the policy serving this request (Phase 13: the YAML one, or a bundle's).
         try:
-            decision = await self._router.decide(ctx.request, ctx)
+            decision = await ctx.applied.router.decide(ctx.request, ctx)
         except RelayError as e:
             return Reject(e)
-        provider = self._config.models[decision.model].provider
+        provider = ctx.applied.config.models[decision.model].provider
         if not ctx.tenant.allows(decision.model, provider):
             # The same 404 as for a model that doesn't exist: nothing leaks about what other
             # tenants can reach.
             return Reject(model_not_found(ctx.request.model))
         ctx.decision = decision
+        # The policy of record. With a policy bundle applied it is the bundle's version, set
+        # when the request arrived (ADR 0023). Without one, the policy that decided: the
+        # request's version was set before routing (to the static policy), so without this a
+        # router's version would never reach the log row or a cache entry.
+        if ctx.applied.version is None:
+            ctx.policy_version = decision.policy_version
+        ctx.router_reason = decision.reason
+        ctx.router_score = decision.score
+        shadow = ctx.policy.shadow() if ctx.policy is not None else None
+        if shadow is not None:
+            # Off the request's path: it runs while the provider answers and is collected in
+            # finalize, before the log row is written. Awaiting it here (as before review) put
+            # a whole embedding on the request whenever the live policy hadn't computed one.
+            self._shadow[id(ctx)] = asyncio.create_task(
+                self._shadow_decision(ctx, shadow.router, shadow.version)
+            )
         return Continue()
 
+    async def _shadow_decision(
+        self, ctx: RequestContext, router: Router, version: str | None
+    ) -> None:
+        """Shadow mode (FR-11): the candidate's router decides too; the decision is logged and
+        never applied, and it records no router metrics. A failure here is swallowed: a shadow
+        bundle must never change a response."""
+        try:
+            decision = await router.decide(ctx.request, ctx, shadow=True)
+        except Exception:
+            SHADOW_DECISIONS.labels(result="error").inc()
+            logger.warning("shadow policy %s could not decide", version, exc_info=True)
+            return
+        SHADOW_DECISIONS.labels(result="ok").inc()
+        ctx.shadow_policy_version = version
+        ctx.shadow_tier = decision.tier
+        ctx.shadow_score = decision.score
+
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
-        return None
+        task = self._shadow.pop(id(ctx), None)
+        if task is not None:
+            # Bounded by the shadow router's own embedding timeout; usually long finished.
+            await task
 
 
 class ProviderStage:
@@ -161,6 +221,7 @@ class ProviderStage:
             return Reject(e)
 
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
+        await self._dispatcher.release_provider_tokens(ctx)
         permit = ctx.breaker_permit
         if permit is None:
             return
@@ -172,4 +233,4 @@ class ProviderStage:
         elif outcome.status == "failed_midstream":
             self._dispatcher.breakers.record(permit, ErrorClass.STREAM_BROKEN)
         else:
-            self._dispatcher.breakers.get(permit.provider, permit.model).release(permit)
+            self._dispatcher.breakers.release(permit)

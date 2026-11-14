@@ -1,0 +1,21 @@
+# Grafana Tempo, single binary, for local development (Phase 14). It receives traces from the
+# OpenTelemetry Collector over OTLP gRPC and serves them to Grafana on :3200.
+# Storage is local and ephemeral (under /tmp in the container): a restart forgets old traces,
+# which is fine for a dev stack. Production would use object storage and retention settings.
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/traces
+    wal:
+      path: /tmp/tempo/wal

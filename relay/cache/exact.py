@@ -37,10 +37,17 @@ class ExactStore(Protocol):
 
 
 class MemoryExactStore:
-    """In-process, for tests and for running without Redis."""
+    """In-process, for tests and for running without Redis.
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+    Bounded: at ``max_items``, expired entries are dropped, then the oldest (a dict keeps
+    insertion order). Without it (found in review) an entry only left when its own key was
+    read again, so memory grew with every distinct request."""
+
+    def __init__(
+        self, clock: Callable[[], float] = time.monotonic, *, max_items: int = 10_000
+    ) -> None:
         self._clock = clock
+        self._max_items = max_items
         self._items: dict[str, tuple[float, CachedReply]] = {}
 
     async def get(self, key: str) -> CachedReply | None:
@@ -51,8 +58,14 @@ class MemoryExactStore:
         return item[1]
 
     async def set(self, key: str, reply: CachedReply, ttl_s: int) -> None:
-        if len(reply.dumps().encode("utf-8")) <= MAX_VALUE_BYTES:
-            self._items[key] = (self._clock() + ttl_s, reply)
+        if len(reply.dumps().encode("utf-8")) > MAX_VALUE_BYTES:
+            return
+        now = self._clock()
+        if len(self._items) >= self._max_items:
+            self._items = {k: v for k, v in self._items.items() if v[0] > now}
+            while len(self._items) >= self._max_items:
+                del self._items[next(iter(self._items))]
+        self._items[key] = (now + ttl_s, reply)
 
     async def start(self) -> None:
         return None

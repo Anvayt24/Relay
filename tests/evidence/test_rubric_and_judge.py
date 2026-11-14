@@ -131,3 +131,62 @@ async def test_both_orders_turns_a_flip_into_a_tie() -> None:
     result = await judge.judge(request="q", candidate="a", reference="b")
     assert result.label == "tie"
     assert judge.calls == 2
+
+
+async def test_the_judge_reports_what_its_calls_used() -> None:
+    # The shadow budget is settled against it (found in review: it assumed 16 output tokens).
+    one = LLMJudge(FakeAdapter('{"verdict": "A_worse"}'), model="m", name="j")
+    assert (await one.judge(request="q", candidate="a", reference="b")).usage == Usage(
+        prompt_tokens=1, completion_tokens=1, total_tokens=2
+    )
+    adapter = FakeAdapter(*['{"verdict": "A_worse"}'] * 2)
+    both = LLMJudge(adapter, model="m", name="j", rng=random.Random(0), both_orders=True)
+    result = await both.judge(request="q", candidate="a", reference="b")
+    assert result.usage is not None and result.usage.total_tokens == 4  # both calls
+
+
+# ---------------------------------------------------------------- rubric v2 (reason + verdict)
+def test_v1_prompt_is_unchanged_by_v2() -> None:
+    # v1 is what flash-lite was calibrated with: its text must not move.
+    v1 = build_messages("q", "a", "b", nonce="n")
+    assert v1[0]["content"] == SYSTEM and '"reason"' not in SYSTEM
+
+
+def test_v2_asks_for_a_short_reason_before_the_verdict() -> None:
+    system = build_messages("q", "a", "b", nonce="n", version="v2")[0]["content"]
+    # Reason first: the verdict then follows from what the judge wrote, not the other way round.
+    assert '"reason"' in system and system.index('"reason"') < system.index('"verdict"')
+
+
+def test_an_unknown_rubric_version_is_refused() -> None:
+    with pytest.raises(ValueError, match="rubric version"):
+        build_messages("q", "a", "b", version="v9")
+
+
+def test_v2_reason_and_verdict_parse_even_with_braces_in_the_reason() -> None:
+    from relay.evidence.rubric import parse_judgment
+
+    text = 'Sure. {"reason": "A sets {x} wrong, so it is off-task.", "verdict": "A_worse"}'
+    assert parse_judgment(text) == ("A_worse", "A sets {x} wrong, so it is off-task.")
+    assert parse_judgment('{"verdict": "neither"}') == ("neither", None)
+    assert parse_judgment("no json here") == (None, None)
+
+
+async def test_a_v2_judge_records_its_reason_and_version() -> None:
+    adapter = FakeAdapter('{"reason": "B ignores the question.", "verdict": "B_worse"}')
+    judge = LLMJudge(adapter, model="m", name="j", rng=random.Random(0), prompt_version="v2")
+    result = await judge.judge(request="q", candidate="c", reference="r")
+    assert result.prompt_version == "v2"
+    assert result.reason == "B ignores the question."
+    assert result.label in ("win", "loss")  # which side B is depends on the random order
+
+
+async def test_a_judge_can_send_no_temperature() -> None:
+    # Claude Sonnet 5.5 rejects any non-default temperature with a 400.
+    default = FakeAdapter('{"verdict": "neither"}')
+    await LLMJudge(default, model="m", name="j").judge(request="q", candidate="c", reference="r")
+    assert default.requests[0].temperature == 0
+    unset = FakeAdapter('{"verdict": "neither"}')
+    judge = LLMJudge(unset, model="m", name="j", temperature=None)
+    await judge.judge(request="q", candidate="c", reference="r")
+    assert unset.requests[0].temperature is None

@@ -1,4 +1,4 @@
-"""The two admission stages (PRD FR-4: "admission is split into two steps").
+"""The two admission stages: admission is split into two steps.
 
     Log → [Admission] → Route → [Reservation] → Provider
 
@@ -11,7 +11,7 @@ has run.
 
 Both stages do their cleanup in ``finalize``, which runs for every way a request can end:
 success, error, a client that disconnects, a stream that breaks. That is what guarantees
-"every reservation is reconciled or released" (FR-4 acceptance) and that no slot leaks.
+"every reservation is reconciled or released" and that no slot leaks.
 """
 
 import logging
@@ -35,6 +35,13 @@ from relay.schemas.chat import Usage
 from relay.schemas.errors import ErrorClass, RelayError
 
 logger = logging.getLogger(__name__)
+
+# How long a stream's money stays held beyond its deadline. A stream is not bound by the
+# deadline after its first byte, so a hold that expired at deadline + 60 s (found in
+# review) could vanish while a long stream was still spending, letting others reserve that
+# money. The TTL is only the safety net for a replica that dies before settling; a long one
+# holds budget a little longer, which fails safe (no overspend).
+STREAM_HOLD_S = 1800.0
 
 REJECTED = Counter(
     "relay_admission_rejected_total", "Requests refused by admission or reservation.", ["reason"]
@@ -62,6 +69,35 @@ def _reject(
     return Reject(RelayError(status, error_class, message, retry_after_s=retry_after_s))
 
 
+def _check_request_limits(ctx: RequestContext) -> Reject | None:
+    limits = ctx.tenant.request_limits
+    request = ctx.request
+    if limits.max_messages is not None and len(request.messages) > limits.max_messages:
+        REJECTED.labels(reason="max_messages").inc()
+        return Reject(
+            RelayError(
+                400,
+                ErrorClass.INVALID_REQUEST,
+                f"this gateway accepts at most {limits.max_messages} messages per request",
+                param="messages",
+            )
+        )
+    if limits.max_tokens is not None:
+        if request.max_tokens is not None and request.max_tokens > limits.max_tokens:
+            REJECTED.labels(reason="max_tokens").inc()
+            return Reject(
+                RelayError(
+                    400,
+                    ErrorClass.INVALID_REQUEST,
+                    f"max_tokens may be at most {limits.max_tokens} here",
+                    param="max_tokens",
+                )
+            )
+        if request.max_tokens is None:
+            request.max_tokens = limits.max_tokens  # the cap is also the default
+    return None
+
+
 class AdmissionStage:
     name = "admission"
 
@@ -73,11 +109,32 @@ class AdmissionStage:
         self._replicas = max(1, replica_count)
 
     def _slot_limit(self, ctx: RequestContext) -> int:
-        # Concurrency is per replica: each gets its share of the tenant's limit (ADR 0007).
+        # Concurrency is per replica: each gets its share of the tenant's limit.
         return max(1, math.ceil(ctx.tenant.limits.concurrency / self._replicas))
 
     async def process(self, ctx: RequestContext) -> StageResult:
         limits = ctx.tenant.limits
+        # What one request may ask for, before anything is counted or queued.
+        refused = _check_request_limits(ctx)
+        if refused is not None:
+            return refused
+        if limits.per_ip_rpm is not None:
+            # One bucket per tenant and client address. Checked before the tenant's own rpm,
+            # so a flood from one address spends its own allowance, not everyone's.
+            wait = await self._store.take(
+                f"ip:{ctx.tenant.id}:{ctx.client_ip}",
+                capacity=limits.per_ip_rpm,
+                refill_per_s=limits.per_ip_rpm / 60,
+                amount=1,
+            )
+            if wait > 0:
+                return _reject(
+                    "per_ip",
+                    429,
+                    ErrorClass.CLIENT_RATE_LIMITED,
+                    f"limit of {limits.per_ip_rpm} requests per minute from one address reached",
+                    retry_after_s=wait,
+                )
         wait = await self._store.take(
             f"rpm:{ctx.tenant.id}", capacity=limits.rpm, refill_per_s=limits.rpm / 60, amount=1
         )
@@ -114,27 +171,25 @@ def seconds_to_utc_midnight(now: datetime) -> float:
 
 
 # Which models a request might be served by: the dispatcher's candidate plan (primary first,
-# then fallbacks). Without a planner, only the routed model.
+# then fallbacks).
 type ModelPlanner = Callable[[RequestContext], Sequence[str]]
 
 
 class ReservationStage:
     name = "reservation"
 
-    def __init__(
-        self, store: CapacityStore, config: RelayConfig, *, planner: ModelPlanner | None = None
-    ) -> None:
+    def __init__(self, store: CapacityStore, config: RelayConfig, *, planner: ModelPlanner) -> None:
         self._store = store
         self._config = config
         self._planner = planner
 
     def _worst_case(self, ctx: RequestContext, prompt: int) -> tuple[int, int]:
         """(tokens, billed nano-USD) to hold: the maximum over every model this request might
-        be served by, each at its own output cap and price (FR-4: "size the USD reservation
-        for the most expensive model reachable through the route's fallback graph"). The
-        settle at the end charges only what the serving model really cost."""
+        be served by, each at its own output cap and price, so the USD hold covers the most
+        expensive model reachable through the route's fallback graph. The settle at the end
+        charges only what the serving model really cost."""
         assert ctx.decision is not None
-        names = self._planner(ctx) if self._planner else [ctx.decision.model]
+        names = self._planner(ctx)
         tokens_needed, nano = 0, 0
         for name in names:
             model = self._config.models[name]
@@ -154,7 +209,7 @@ class ReservationStage:
         if decision is None:
             raise RuntimeError("ReservationStage needs a route decision; RouteStage goes first")
         tenant = ctx.tenant
-        prompt = tokens.prompt_tokens(ctx.request)
+        prompt = ctx.prompt_tokens
         needed, nano = self._worst_case(ctx, prompt)
 
         # 1. Tokens per minute. A request bigger than the whole bucket can never fit: that's a
@@ -188,10 +243,11 @@ class ReservationStage:
         budget = f"{tenant.id}:{now:%Y%m%d}"  # a new key each UTC day: the daily reset
         res_id = uuid.uuid4().hex
         held = False
+        # Held until the request's deadline (plus a margin, or for a stream, long enough to
+        # outlive it), then it expires by itself.
+        ttl = max(1.0, ctx.deadline - time.monotonic()) + (STREAM_HOLD_S if ctx.stream else 60)
         if nano > 0:
             limit = int(tenant.budget_usd_daily * NANO_PER_USD)
-            # Held until the request's deadline (plus a margin), then it expires by itself.
-            ttl = max(1.0, ctx.deadline - time.monotonic()) + 60
             try:
                 held = await self._store.reserve(
                     budget, res_id, amount=nano, limit=limit, ttl_s=ttl
@@ -223,6 +279,46 @@ class ReservationStage:
                         )
                     SOFT_OVER_BUDGET.labels(tenant=tenant.id).inc()
 
+        # 3. The all-tenant daily cap, on top of the tenant's own budget. Both
+        #    holds are taken or neither stays: a refusal here gives the tenant's money back.
+        global_budget: str | None = None
+        global_held = False
+        cap = self._config.global_budget_usd_daily
+        if cap is not None and nano > 0:
+            global_budget = f"global:{now:%Y%m%d}"
+            refusal: Reject | None = None
+            try:
+                global_held = await self._store.reserve(
+                    global_budget,
+                    res_id,
+                    amount=nano,
+                    limit=int(cap * NANO_PER_USD),
+                    ttl_s=ttl,
+                )
+            except StoreUnavailable:
+                refusal = _reject(
+                    "global_budget_unavailable",
+                    503,
+                    ErrorClass.BUDGET_UNAVAILABLE,
+                    "budget enforcement is temporarily unavailable; retry shortly",
+                    retry_after_s=5,
+                )
+            else:
+                if not global_held:
+                    refusal = _reject(
+                        "global_budget",
+                        429,
+                        ErrorClass.BUDGET_EXCEEDED,
+                        f"the daily limit of ${cap} across all tenants is reached; "
+                        "resets at 00:00 UTC",
+                        retry_after_s=seconds_to_utc_midnight(now),
+                    )
+            if refusal is not None:
+                if held:
+                    await self._store.settle(budget, res_id, actual=0)  # release the tenant's hold
+                await self._store.refund(tpm_key, capacity=tenant.limits.tpm, amount=needed)
+                return refusal
+
         ctx.reservation = Reservation(
             res_id=res_id,
             budget=budget,
@@ -231,6 +327,8 @@ class ReservationStage:
             prompt_estimate=prompt,
             nano=nano if held else 0,
             held=held,
+            global_budget=global_budget,
+            global_held=global_held,
         )
         return Continue()
 
@@ -275,3 +373,8 @@ class ReservationStage:
             except StoreUnavailable:
                 # The reservation expires by itself; this spend goes unrecorded (bounded).
                 logger.warning("could not settle reservation %s: budget store down", r.res_id)
+        if r.global_held and r.global_budget is not None:
+            try:
+                await self._store.settle(r.global_budget, r.res_id, actual=actual_nano)
+            except StoreUnavailable:
+                logger.warning("could not settle global reservation %s: store down", r.res_id)

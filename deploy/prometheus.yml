@@ -5,5 +5,10 @@ global:
 
 scrape_configs:
   - job_name: relay-api
-    static_configs:
-      - targets: ["api:8000"]
+    # One target per replica: a DNS lookup of "api" returns every container behind the name,
+    # so scaling the gateway (`--scale api=2`) needs no edit here. The metrics port is not
+    # published to the host.
+    dns_sd_configs:
+      - names: ["api"]
+        type: A
+        port: 9464

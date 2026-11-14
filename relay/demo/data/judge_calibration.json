@@ -1,0 +1,61 @@
+{
+  "caveat": "Calibrated on public data (2023-era models and author-built adversarial pairs), not on Relay's own traffic. MT-Bench votes are preferences, while the rubric asks whether one answer is materially worse.",
+  "gate": {
+    "kappa_min": 0.6,
+    "loss_recall_min": 0.7,
+    "n_min": 50
+  },
+  "human_agreement_mtbench": {
+    "accuracy": 0.777027027027027,
+    "kappa": 0.5387230827351718,
+    "n": 148
+  },
+  "judges": {
+    "anthropic/sonnet": {
+      "abstained": 4,
+      "accuracy": {
+        "ci_high": 0.84375,
+        "ci_low": 0.7692307692307693,
+        "value": 0.8052884615384616
+      },
+      "kappa": {
+        "ci_high": 0.6882350228289443,
+        "ci_low": 0.53902394443429,
+        "value": 0.6117614526684487
+      },
+      "loss_recall": {
+        "ci_high": 0.8169014084507042,
+        "ci_low": 0.7090909090909091,
+        "value": 0.7636363636363637
+      },
+      "n": 416,
+      "rubric": [
+        "v2"
+      ],
+      "status": "calibrated"
+    },
+    "gemini/flash-lite": {
+      "abstained": 0,
+      "accuracy": {
+        "ci_high": 0.7880952380952381,
+        "ci_low": 0.7047619047619048,
+        "value": 0.7476190476190476
+      },
+      "kappa": {
+        "ci_high": 0.5723112128146453,
+        "ci_low": 0.40515350877192985,
+        "value": 0.49359601428668926
+      },
+      "loss_recall": {
+        "ci_high": 0.8207547169811321,
+        "ci_low": 0.705607476635514,
+        "value": 0.7647058823529411
+      },
+      "n": 420,
+      "rubric": [
+        "v1"
+      ],
+      "status": "uncalibrated"
+    }
+  }
+}

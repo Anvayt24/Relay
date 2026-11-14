@@ -1,0 +1,14 @@
+{
+  "world": "simulated, difficulty fixed in docs/adr/0018 before any router was trained",
+  "seed": 0,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "fastembed_version": "0.9.0",
+  "near_duplicate_cosine": 0.95,
+  "gold_per_split": 150,
+  "label": "y = 1 if the cheap answer is win-or-tie vs strong. y_true is ground truth; y_judge is the noisy MockJudge label the router trains on. is_gold: truth known (plays the human) for PPI; disjoint from judge-only prompts.",
+  "rows": 2830,
+  "sha256": {
+    "prompts.jsonl": "ca350d75b12e0742fef38766b55833a63caab7b9375248295e1506dbca30d570",
+    "embeddings.npy": "f8b0249a5fedbf393c31f3285b95d74db3fdaf192e630b8263b30adbc4e4366d"
+  }
+}

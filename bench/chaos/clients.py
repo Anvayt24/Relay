@@ -1,4 +1,4 @@
-"""The clients being compared (PRD E-C). Each turns one logical request into a ``Result``.
+"""The clients being compared. Each turns one logical request into a ``Result``.
 
 - ``relay_client``: one call to Relay, which owns retries and fallback.
 - ``naive_retry_client``: what teams write without a gateway. Up to 5 tries against the
@@ -8,10 +8,10 @@
 All three speak plain HTTP with httpx, so the measurement is of the *behavior*, with no SDK
 in the loop. The OpenAI SDK is verified against Relay separately (tests/api).
 
-LiteLLM is deliberately not here: the baseline is deferred (ADR 0012).
+LiteLLM is deliberately not here: the baseline is deferred.
 """
 
-import asyncio
+import asyncio  # noqa: F401  (tests patch `clients.asyncio.sleep`: the same module naive_retry sleeps with)
 import json
 import re
 import time
@@ -20,11 +20,10 @@ from typing import Any
 import httpx
 
 from bench.chaos.metrics import Result
+from relay.demo.naive import naive_retry
 
 CHAT = "/v1/chat/completions"
 INDEX_IN_ID = re.compile(r"chatcmpl-sim-(\d+)-")
-# 0.5, 1, 2, 4 s between five tries, no jitter: the textbook retry loop.
-NAIVE_BACKOFF_S = (0.5, 1.0, 2.0, 4.0)
 
 
 def body(stream: bool, content: str = "hello") -> dict[str, Any]:
@@ -141,25 +140,29 @@ async def naive_retry_client(
     t0: float,
 ) -> Result:
     started = time.monotonic()
-    for attempt in range(len(NAIVE_BACKOFF_S) + 1):
+
+    async def try_primary() -> tuple[bool, tuple[int, bool, int | None]]:
         status, _, ok, silent, index = await _post(
             client, primary + CHAT, body(stream), primary_model
         )
-        if ok:
-            return Result(True, time.monotonic() - started, status, False, False, stream,
-                          "primary", index, started - t0)  # fmt: skip
-        if attempt < len(NAIVE_BACKOFF_S):
-            await asyncio.sleep(NAIVE_BACKOFF_S[attempt])
-    status, _, ok, silent, index = await _post(
-        client, fallback + CHAT, body(stream), fallback_model
-    )
+        return ok, (status, silent, index)
+
+    async def try_fallback() -> tuple[bool, tuple[int, bool, int | None]]:
+        status, _, ok, silent, index = await _post(
+            client, fallback + CHAT, body(stream), fallback_model
+        )
+        return ok, (status, silent, index)
+
+    ok, (status, silent, index), served_by = await naive_retry(try_primary, try_fallback)
     return Result(
         ok=ok,
         latency_s=time.monotonic() - started,
         status=status,
-        silent_truncation=silent,
+        # A success on the primary was never counted as a truncation; the fallback's result
+        # reports whatever the fallback did.
+        silent_truncation=silent if served_by == "fallback" else False,
         stream=stream,
-        served_by="fallback",
+        served_by=served_by,
         index=index,
         started_s=started - t0,
     )

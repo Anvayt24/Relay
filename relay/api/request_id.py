@@ -1,10 +1,11 @@
-"""Request-ID middleware (PRD FR-1, FR-8).
+"""Request-ID middleware.
 
 This is a pure ASGI middleware: a class with ``__call__(scope, receive, send)``. It is
 deliberately not Starlette's ``BaseHTTPMiddleware``, which runs the endpoint in a separate task
 and wraps the response body. That has historically broken streaming responses and context
-variables, and Phase 2 streams. ASGI is also the protocol everything else here is built on, so
-seeing it raw is worth it:
+variables, and Relay streams. ASGI is also the protocol everything else here is built on, so
+seeing it raw is worth it: pure ASGI supports streaming responses, WebSockets, and lifespan events,
+and is the interface that Starlette, FastAPI, and Uvicorn all implement.
 
 - ``scope``: a dict describing the connection (type, path, headers...);
 - ``receive()``: awaits the next event from the client (request body chunks, disconnect);
@@ -12,16 +13,31 @@ seeing it raw is worth it:
   ``http.response.start`` (status + headers) followed by ``http.response.body`` events.
 
 To add a header to every response, wrap ``send`` and edit the start message as it goes past.
+
+The same place also opens the request's root span (``relay.request``) when tracing is
+on, honouring an incoming W3C ``traceparent``, and sets the request-ID contextvar that log
+lines read (``relay/telemetry/logs.py``). Because this middleware wraps the whole app, and a
+streaming response sends its body inside that call, the span covers a stream until it ends.
 """
 
 import re
 import uuid
+from contextlib import AbstractContextManager, nullcontext
 
+from opentelemetry.propagate import extract
+from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from relay.telemetry import tracing
+from relay.telemetry.logs import REQUEST_ID
+
 HEADER = "X-Request-ID"
 _RAW_HEADER = HEADER.lower().encode("latin-1")  # ASGI header names are lowercase bytes
+
+# Probes and scrapes are not traced: a healthcheck every 5 s and a Prometheus scrape every 15 s
+# would otherwise fill the trace store with noise and spend export capacity on nothing.
+UNTRACED_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
 
 # The ID ends up in log lines and response headers. Anything outside this charset could
 # forge log entries ("abc\nERROR fake line") or split headers, so it is replaced.
@@ -53,9 +69,48 @@ class RequestIdMiddleware:
         # the 500 handler (outside this middleware) can see it.
         scope.setdefault("state", {})["request_id"] = request_id
 
-        async def send_with_request_id(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                MutableHeaders(scope=message)[HEADER] = request_id
-            await send(message)
+        token = REQUEST_ID.set(request_id)
+        try:
+            traced = tracing.enabled() and scope.get("path") not in UNTRACED_PATHS
+            with self._span(scope, request_id) if traced else nullcontext() as span:
+                if span is not None:
+                    scope["state"]["span"] = span  # the context annotates it (LogStage)
 
-        await self.app(scope, receive, send_with_request_id)
+                async def send_with_request_id(message: Message) -> None:
+                    if message["type"] == "http.response.start":
+                        MutableHeaders(scope=message)[HEADER] = request_id
+                        if span is not None:
+                            status = int(message["status"])
+                            span.set_attribute("http.response.status_code", status)
+                            if status >= 500:
+                                span.set_status(Status(StatusCode.ERROR))
+                    await send(message)
+
+                await self.app(scope, receive, send_with_request_id)
+        finally:
+            REQUEST_ID.reset(token)
+
+    @staticmethod
+    def _span(scope: Scope, request_id: str) -> AbstractContextManager[Span]:
+        """The request's root span, joined to the caller's trace when it sent a traceparent."""
+        carrier = {
+            name.decode("latin-1"): value.decode("latin-1")
+            for name, value in scope["headers"]
+            if name in (b"traceparent", b"tracestate")
+        }
+        return tracing.tracer().start_as_current_span(
+            "relay.request",
+            context=extract(carrier),
+            kind=SpanKind.SERVER,
+            attributes={
+                "relay.request_id": request_id,
+                "http.request.method": scope.get("method", ""),
+                "url.path": scope.get("path", ""),
+            },
+        )
+
+
+# add a header to every request, looks at the http request header for existing and if not exist
+# then adds one to it. Also sets the request id in the context variable for logging and tracing.
+# If tracing is enabled, it creates a root span for the request and joins it to the caller's
+# trace if a traceparent is present.

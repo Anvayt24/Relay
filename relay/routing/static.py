@@ -43,7 +43,9 @@ class StaticRouter:
         self._config = config
         self._available = available  # models whose provider has an adapter (a key)
 
-    async def decide(self, req: ChatRequest, ctx: "RequestContext") -> RouteDecision:
+    async def decide(
+        self, req: ChatRequest, ctx: "RequestContext", *, shadow: bool = False
+    ) -> RouteDecision:
         aliases = self._config.routes[ctx.route].aliases
         if req.model in aliases:
             name, reason = aliases[req.model], "alias"

@@ -8,6 +8,7 @@ from relay.config.models import available_models
 from relay.providers.anthropic import AnthropicAdapter
 from relay.providers.openai_compat import OpenAICompatAdapter
 from relay.providers.registry import NO_KEYS, ProviderKeys, build_adapters
+from relay.schemas.chat import ChatRequest
 from relay.settings import Settings
 
 CONFIG = load_config()  # the shipped relay.yaml: all five providers
@@ -42,3 +43,26 @@ def test_empty_key_counts_as_missing() -> None:
 def test_keys_never_show_in_repr() -> None:
     keys = ProviderKeys(_env_file=None, groq_api_key=SecretStr("super-secret"))  # type: ignore[call-arg]
     assert "super-secret" not in repr(keys)
+
+
+def test_models_marked_thinking_off_reach_the_anthropic_adapter() -> None:
+    # relay.yaml marks a model `thinking: off`; the adapter is per provider, so the registry
+    # hands it the upstream ids of that provider's models that ask for it, and no others.
+    keys = ProviderKeys(_env_file=None, anthropic_api_key=SecretStr("a"))  # type: ignore[call-arg]
+    adapters = build_adapters(
+        keys,
+        Settings(_env_file=None),
+        CONFIG.providers,
+        models=CONFIG.models,  # type: ignore[call-arg]
+    )
+    anthropic = adapters["anthropic"]
+    assert isinstance(anthropic, AnthropicAdapter)
+    sonnet = CONFIG.models["anthropic/sonnet"]
+    haiku = CONFIG.models["anthropic/haiku"]
+    assert sonnet.thinking == "off" and haiku.thinking == "default"
+    request = ChatRequest.model_validate(
+        {"model": sonnet.provider_model, "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert anthropic._body(request)["thinking"] == {"type": "between_tools"}
+    other = request.model_copy(update={"model": haiku.provider_model})
+    assert "thinking" not in anthropic._body(other)

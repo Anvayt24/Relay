@@ -161,3 +161,15 @@ def test_breaker_invariants_hold_for_any_history(ops: list[tuple[str, float]]) -
             clock.advance(arg)
         if b.state is BreakerState.HALF_OPEN:
             assert sum(1 for p in held if p.probe) <= CFG.breaker_half_open_probes
+
+
+def test_quota_errors_neither_trip_nor_dilute() -> None:
+    # Like a 429, "out of quota" says nothing about the provider's health: it belongs to the
+    # pause state (FR-4). It must neither count as a failure nor as a success.
+    b = breaker(FakeClock())
+    for _ in range(50):
+        call(b, ErrorClass.QUOTA_EXHAUSTED)
+    assert b.state is BreakerState.CLOSED
+    for _ in range(10):
+        call(b, FAIL)
+    assert b.state is BreakerState.OPEN  # had they counted as successes: 10/60, still closed

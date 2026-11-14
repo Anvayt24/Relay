@@ -12,3 +12,6 @@ class Reservation:
     prompt_estimate: int
     nano: int  # reserved against the daily budget (0 when nothing was reserved)
     held: bool  # False when no money was held (free model, or soft tenant over budget)
+    # The same amount held against the all-tenant daily cap; None = no such cap.
+    global_budget: str | None = None
+    global_held: bool = False
