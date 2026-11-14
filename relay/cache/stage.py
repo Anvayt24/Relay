@@ -128,7 +128,7 @@ class CacheStage:
             REQUESTS.labels(layer="none", result="bypass").inc()
             return Continue()
 
-        config = ctx.applied.config  # the route policy serving this request (ADR 0023)
+        config = ctx.applied.config  # the route policy serving this request 
         route = config.routes[ctx.route]
         cap = req.max_tokens or max(
             (config.models[m].default_max_tokens for m in route.aliases.values()),
