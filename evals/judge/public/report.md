@@ -2,7 +2,7 @@
 
 Calibrated on public data (2023-era models and author-built adversarial pairs), not on Relay's own traffic. MT-Bench votes are preferences, while the rubric asks whether one answer is materially worse.
 
-Pairs: 840 (0 not judged). Gate (M7): kappa >= 0.6 and loss recall >= 0.7 on >= 50 pairs.
+Pairs: 840 (0 not judged). Calibration gate: kappa >= 0.6 and loss recall >= 0.7 on >= 50 pairs.
 
 | judge | rubric | data | n | kappa [95% CI] | loss recall [95% CI] | accuracy | status |
 |---|---|---|---|---|---|---|---|

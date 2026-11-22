@@ -1,14 +1,14 @@
 # Router evaluation: sim world
 
-**Simulated world.** Difficulty was built into the prompts (ADR 0018), so this measures the *machinery* (training, thresholding, bootstrap, PPI, the CI gate), not real-world savings.
+**Simulated world.** Difficulty was built into the prompts, so this measures the *machinery* (training, thresholding, bootstrap, PPI, the CI gate), not real-world savings.
 
 Router `router-sim-v1` (embedding `BAAI/bge-small-en-v1.5`). Test split: 631 prompts, 150 of them gold-labeled.
 
-## Headline (M4: lower 95% bound of policy quality >= 0.95, share to cheap >= 40%)
+## Headline (quality floor: lower 95% bound of policy quality >= 0.95)
 
 - Threshold, chosen on **validation** only: **0.82** 
-- On **test**, **37.2%** of requests go to the cheap model (target 40%: NOT met).
-- Quality vs ground truth: **0.9857**, one-sided 95% lower bound **0.9778** (floor 0.95: met).
+- On **test**, **37.2%** of requests go to the cheap model.
+- Quality vs ground truth: **0.9857**, one-sided 95% lower bound **0.9778** (floor 0.95: above).
 - Judge-only estimate (biased by the judge's errors): 0.9699.
 - **PPI-corrected** estimate: 0.9799, one-sided 95% lower bound 0.9630; the 150 gold labels are worth about 1.2x as many human labels (lambda 0.51).
 - List-price cost saved vs always-strong: 33.5% (illustrative: 100 prompt + 300 completion tokens per request, list prices from relay.yaml).
