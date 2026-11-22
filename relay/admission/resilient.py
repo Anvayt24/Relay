@@ -39,12 +39,11 @@ class ResilientStore:
         primary: CapacityStore,
         *,
         replica_count: int = 1,
-        fallback: MemoryStore | None = None,
         retry_after_s: float = 2.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.primary = primary
-        self.fallback = fallback or MemoryStore()
+        self.fallback = MemoryStore()
         self._replicas = max(1, replica_count)
         self._retry_after_s = retry_after_s
         self._clock = clock
@@ -57,7 +56,10 @@ class ResilientStore:
     async def close(self) -> None:
         await self.primary.close()
 
-    def _down(self, operation: str, *, failed: bool = True) -> None:
+    def _down(self, operation: str) -> None:
+        # Only a real failure (not a call short-circuited by _primary while skipping) restarts
+        # the skip window; otherwise Redis would never be retried while traffic keeps coming.
+        failed = not self._skipping()
         self.healthy = False
         if failed:
             self._skip_until = self._clock() + self._retry_after_s
@@ -79,7 +81,7 @@ class ResilientStore:
                 key, capacity=capacity, refill_per_s=refill_per_s, amount=amount
             )
         except StoreUnavailable:
-            self._down("take", failed=not self._skipping())
+            self._down("take")
             return await self.fallback.take(
                 key,
                 capacity=max(1, math.floor(capacity / self._replicas)),
@@ -93,7 +95,7 @@ class ResilientStore:
         try:
             await self._primary().refund(key, capacity=capacity, amount=amount)
         except StoreUnavailable:
-            self._down("refund", failed=not self._skipping())
+            self._down("refund")
             await self.fallback.refund(
                 key, capacity=max(1, math.floor(capacity / self._replicas)), amount=amount
             )
@@ -107,7 +109,7 @@ class ResilientStore:
                 budget, res_id, amount=amount, limit=limit, ttl_s=ttl_s
             )
         except StoreUnavailable:
-            self._down("reserve", failed=not self._skipping())
+            self._down("reserve")
             raise
         self.healthy = True
         return ok
@@ -118,7 +120,7 @@ class ResilientStore:
         except StoreUnavailable:
             # The reservation expires on its own (TTL), so nothing stays held. The spend is not
             # recorded, though: a bounded under-count, logged by the caller.
-            self._down("settle", failed=not self._skipping())
+            self._down("settle")
             raise
 
     async def budget_state(self, budget: str) -> BudgetState:
@@ -130,13 +132,13 @@ class ResilientStore:
         try:
             await self._primary().pause(key, ttl_s)
         except StoreUnavailable:
-            self._down("pause", failed=not self._skipping())
+            self._down("pause")
 
     async def paused_for(self, key: str) -> float:
         local = await self.fallback.paused_for(key)
         try:
             shared = await self._primary().paused_for(key)
         except StoreUnavailable:
-            self._down("paused_for", failed=not self._skipping())
+            self._down("paused_for")
             return local
         return max(local, shared)

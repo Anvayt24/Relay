@@ -64,34 +64,33 @@ def _reject(
     error_class: ErrorClass,
     message: str,
     retry_after_s: float | None = None,
+    param: str | None = None,
 ) -> Reject:
     REJECTED.labels(reason=reason).inc()
-    return Reject(RelayError(status, error_class, message, retry_after_s=retry_after_s))
+    return Reject(
+        RelayError(status, error_class, message, param=param, retry_after_s=retry_after_s)
+    )
 
 
 def _check_request_limits(ctx: RequestContext) -> Reject | None:
     limits = ctx.tenant.request_limits
     request = ctx.request
     if limits.max_messages is not None and len(request.messages) > limits.max_messages:
-        REJECTED.labels(reason="max_messages").inc()
-        return Reject(
-            RelayError(
-                400,
-                ErrorClass.INVALID_REQUEST,
-                f"this gateway accepts at most {limits.max_messages} messages per request",
-                param="messages",
-            )
+        return _reject(
+            "max_messages",
+            400,
+            ErrorClass.INVALID_REQUEST,
+            f"this gateway accepts at most {limits.max_messages} messages per request",
+            param="messages",
         )
     if limits.max_tokens is not None:
         if request.max_tokens is not None and request.max_tokens > limits.max_tokens:
-            REJECTED.labels(reason="max_tokens").inc()
-            return Reject(
-                RelayError(
-                    400,
-                    ErrorClass.INVALID_REQUEST,
-                    f"max_tokens may be at most {limits.max_tokens} here",
-                    param="max_tokens",
-                )
+            return _reject(
+                "max_tokens",
+                400,
+                ErrorClass.INVALID_REQUEST,
+                f"max_tokens may be at most {limits.max_tokens} here",
+                param="max_tokens",
             )
         if request.max_tokens is None:
             request.max_tokens = limits.max_tokens  # the cap is also the default

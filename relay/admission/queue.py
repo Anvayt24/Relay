@@ -28,7 +28,6 @@ the configured limit.
 import asyncio
 import time
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from prometheus_client import Gauge, Histogram
@@ -58,9 +57,9 @@ class StridePicker:
     """Pure scheduling logic: given which classes are waiting, which goes next. No I/O and no
     asyncio, so property tests can run thousands of scenarios in milliseconds."""
 
-    def __init__(self, weights: dict[Priority, int] = WEIGHTS) -> None:
-        self.weights = weights
-        self.passes: dict[Priority, float] = dict.fromkeys(weights, 0.0)
+    def __init__(self) -> None:
+        self.weights = WEIGHTS
+        self.passes: dict[Priority, float] = dict.fromkeys(WEIGHTS, 0.0)
         self.virtual_time = 0.0
 
     def activate(self, cls: Priority) -> None:
@@ -96,11 +95,9 @@ class AdmissionQueue:
         *,
         max_wait_s: dict[Priority, float],
         max_depth: int,
-        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._max_wait = max_wait_s
         self._max_depth = max_depth
-        self._clock = clock
         self._tenants: dict[str, _TenantQueue] = {}
 
     def active(self, tenant: str) -> int:
@@ -112,7 +109,7 @@ class AdmissionQueue:
 
     async def acquire(self, tenant: str, *, limit: int, priority: Priority) -> Slot:
         q = self._tenants.setdefault(tenant, _TenantQueue())
-        started = self._clock()
+        started = time.monotonic()
         if q.active < limit and not any(q.waiting.values()):
             q.active += 1  # fast path: a free slot and nobody ahead
             return Slot(tenant, 0.0)
@@ -145,7 +142,7 @@ class AdmissionQueue:
             raise
         finally:
             QUEUE_DEPTH.labels(priority=priority).dec()
-        waited = self._clock() - started
+        waited = time.monotonic() - started
         QUEUE_WAIT.labels(priority=priority).observe(waited)
         return Slot(tenant, waited)
 
