@@ -1,7 +1,7 @@
 """Anthropic's Messages API wire format, as the provider speaks it.
 
 The same engine serves this format; only the translation differs. These are the differences
-Phase 4's Anthropic adapter must handle, and why the simulator reproduces them:
+Relay's Anthropic adapter must handle, and why the simulator reproduces them:
 
 - **``system`` is a top-level field**, not a message. ``max_tokens`` is **required**.
 - **Usage is split**: input tokens arrive in ``message_start`` at the beginning of a stream,
@@ -15,8 +15,8 @@ Phase 4's Anthropic adapter must handle, and why the simulator reproduces them:
 - **A mid-stream failure is an ``event: error`` frame** on a stream that already returned
   200, not a dropped connection as with OpenAI.
 - **Running out of credit is a 400**, not a 429, recognizable only by its message. This is the
-  kind of quirk Appendix B's "adapters distinguish rate_limited from quota_exhausted using
-  each provider's headers and error body" is about.
+  kind of quirk that makes adapters distinguish rate_limited from quota_exhausted using each
+  provider's headers and error body.
 
 Error bodies and messages are modelled on Anthropic's documented error types.
 """

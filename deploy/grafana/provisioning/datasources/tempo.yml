@@ -1,4 +1,4 @@
-# Traces (Phase 14): Explore -> Tempo, search by service "relay" or paste a trace_id from a
+# Traces: Explore -> Tempo, search by service "relay" or paste a trace_id from a
 # JSON log line.
 apiVersion: 1
 

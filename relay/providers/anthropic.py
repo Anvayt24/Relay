@@ -14,7 +14,7 @@ The translation, both ways:
 Stream events become Relay chunks:
 - ``message_start`` → the role chunk;
 - ``content_block_delta`` with ``text_delta`` → a content chunk (other block types, such as
-  thinking or tool input, are skipped: tools are unsupported at P0);
+  thinking or tool input, are skipped: tools are unsupported);
 - ``message_delta`` → the finish chunk;
 - ``message_stop`` → the end, then Relay's usage chunk;
 - ``ping`` → ignored;

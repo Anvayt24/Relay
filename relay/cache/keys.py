@@ -1,4 +1,4 @@
-"""Cache keys: what makes two requests "the same" (PRD FR-6).
+"""Cache keys: what makes two requests "the same".
 
 Two keys, for the two layers:
 
@@ -89,7 +89,7 @@ def semantic_namespace(tenant: str, req: ChatRequest) -> str:
             "t": tenant,
             "model": req.model,
             "system": hashlib.sha256(system_prompt(req).encode("utf-8")).hexdigest(),
-            "response_format": None,  # tools and response_format are rejected at P0 (FR-1)
+            "response_format": None,  # tools and response_format are rejected by the schema
             "temperature": req.temperature,
             "top_p": req.top_p,
             "max_tokens": max_tokens_bucket(req.max_tokens),
@@ -120,7 +120,7 @@ _SENTENCE_START = re.compile(r"(?:^|[.!?]\s+)([A-Z][a-zA-Z]*)")
 
 
 def guard_signature(prompt: str) -> str:
-    """Lexical guard (FR-6, P1): a hash of the numbers and capitalized words in the prompt.
+    """Lexical guard: a hash of the numbers and capitalized words in the prompt.
 
     Embeddings call "15% of 200" and "15% of 300" near-identical, and the answers differ. If
     the signatures differ the pair is forced to a miss. Sentence-initial words are dropped from

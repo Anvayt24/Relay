@@ -1,5 +1,4 @@
-"""Judge noise sensitivity: what the gate does with and without the PPI correction
-(PRD §10.9 item 3).
+"""Judge noise sensitivity: what the gate does with and without the PPI correction.
 
 One decision, many times over: is this candidate's win-or-tie rate above the 0.90 floor? The
 gate sees ``N`` judge-only pairs and ``n`` human-labeled pairs and says ``safe`` (lower bound
@@ -15,8 +14,7 @@ the dangerous error) and truly **good** (w = 0.96: "safe" is the right answer), 
 **Drift.** The last judge is calibrated (good) when the human labels are collected, then drifts
 to loss-blind before the judge-only pairs arrive. The rectifier is stale: it corrects for a
 bias the judge no longer has. That is the failure the card's ``stale`` state and the
-"refresh the human labels after a change" rule (§10.4) exist for, and this experiment shows
-its size.
+"refresh the human labels after a change" rule exist for, and this experiment shows its size.
 """
 
 from typing import Any

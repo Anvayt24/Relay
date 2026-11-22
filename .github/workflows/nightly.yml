@@ -1,7 +1,7 @@
 name: Nightly
 
-# Long-running checks that don't belong on every pull request (PRD §11.4): the full chaos
-# suite, the load test, and the @live provider smoke. Also runnable by hand.
+# Long-running checks that don't belong on every pull request: the full chaos suite, the
+# load test, and the @live provider smoke. Also runnable by hand.
 on:
   schedule:
     - cron: "17 3 * * *"

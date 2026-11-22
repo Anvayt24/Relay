@@ -12,7 +12,7 @@ A raw newline inside ``data`` would split the event. ``json.dumps`` escapes newl
 strings (``"\\n"``), so one JSON object always fits on one ``data:`` line.
 
 ``[DONE]`` is OpenAI's convention, not part of SSE. It means "this stream completed
-normally", which is why a broken stream must *not* send it (FR-5).
+normally", which is why a broken stream must *not* send it.
 """
 
 import json

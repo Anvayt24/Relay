@@ -1,4 +1,4 @@
-# M1(b): the same as relay.load.yaml, but the tenant has the exact + semantic cache on.
+# The cache case: the same as relay.load.yaml, but the tenant has the exact + semantic cache on.
 price_table_version: "load-1"
 providers:
   sim: {kind: openai, base_url: "http://sim:8100/v1", api_key_env: LOAD_KEY, limit_scope: model}

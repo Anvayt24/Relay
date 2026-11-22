@@ -8,8 +8,8 @@ Source: **databricks-dolly-15k**, license **CC BY-SA 3.0** (verified on its data
 Credit: Databricks, "databricks-dolly-15k".
 
 Why a public set: calibration prompts go to third-party model providers (the candidate,
-reference and judge). Real tenant prompts must never be used for that without opt-in (PRD
-§10.2), and Gemini is never used at all (PRD §13).
+reference and judge). Real tenant prompts must never be used for that without opt-in, and
+Gemini is never used at all.
 
 Stratified by the dataset's `category` so the sample isn't all trivia, and seeded so the same
 command gives the same prompts. The output includes the source file's sha256.

@@ -1,4 +1,4 @@
-"""Where bundles and the pointer live (PRD §9.4 ``policy_bundles``; ADR 0024).
+"""Where bundles and the pointer live.
 
 - ``policy_bundles``: one immutable row per version (the bundle as JSON, and its hash);
 - ``policy_pointer``: a single row: what is active, what was, and the running candidate;

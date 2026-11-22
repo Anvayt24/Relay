@@ -1,4 +1,4 @@
-"""The internal chat schema: the OpenAI wire format, the subset Relay supports (PRD FR-1).
+"""The internal chat schema: the OpenAI wire format, the subset Relay supports.
 
 All normalization happens here, once, at the boundary. Everything downstream (router, cache,
 adapters) sees one canonical shape:
@@ -86,7 +86,7 @@ class ChatRequest(BaseModel):
     stream_options: StreamOptions | None = None
 
     # Declared only so they can be refused by name. Silently dropping `tools` would return a
-    # plain-text answer to a client expecting a tool call: a silent behavior change (FR-1).
+    # plain-text answer to a client expecting a tool call: a silent behavior change.
     tools: None = None
     tool_choice: None = None
     response_format: None = None
@@ -159,7 +159,7 @@ class Usage(BaseModel):
     prompt_tokens: int  # all input tokens, cached ones included (OpenAI's convention)
     completion_tokens: int
     total_tokens: int
-    # OpenAI's shape for cache hits; providers bill cached input at a discount (Phase 5).
+    # OpenAI's shape for cache hits; providers bill cached input at a discount.
     prompt_tokens_details: PromptTokensDetails | None = None
     # Tokens *written* to the prompt cache (Anthropic charges extra for these). Not part of
     # the OpenAI wire format, so it is excluded from everything sent to clients.
@@ -205,7 +205,7 @@ class ChatChunk(BaseModel):
 
     @property
     def has_content(self) -> bool:
-        """True for the chunk FR-5 calls the "first byte": the first one carrying text. The
+        """True for the chunk that counts as the "first byte": the first one carrying text. The
         role-only chunk before it does not count, because a failure can still be hidden from
         the client at that point."""
         return any(choice.delta.content for choice in self.choices)

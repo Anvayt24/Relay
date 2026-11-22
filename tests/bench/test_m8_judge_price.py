@@ -1,4 +1,4 @@
-"""M8 (what evidence costs) with a paid judge: Claude Sonnet 5.5 instead of the cheap model.
+"""What evidence costs with a paid judge: Claude Sonnet 5.5 instead of the cheap model.
 
 The simulator runs the traffic; only the judge's price changes. Sonnet's list price is $2 in /
 $10 out per million tokens, and a judge's reason (rubric v2) is output the mock judge does not

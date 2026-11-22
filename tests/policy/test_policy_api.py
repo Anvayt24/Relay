@@ -1,4 +1,4 @@
-"""FR-11 acceptance through the gateway: a shadow bundle never changes a response, a 10% canary
+"""Policy rollout through the gateway: a shadow bundle never changes a response, a 10% canary
 routes about 10%, and a rollback lands within one poll interval. Plus the cache scope, the
 admin API, readiness and the automatic rollback of an unsafe canary."""
 
@@ -202,7 +202,7 @@ async def test_a_ten_percent_canary_routes_about_ten_percent() -> None:
     arms = [row.canary_arm for row in sink.rows]
     assert set(arms) == {"control", "canary"}
     k = arms.count("canary")
-    assert binomtest(k, n, 0.10).pvalue > 0.001  # FR-11: "verified statistically"
+    assert binomtest(k, n, 0.10).pvalue > 0.001  # the split is checked statistically
     canary_rows = [row for row in sink.rows if row.canary_arm == "canary"]
     assert all(row.policy_version == V2 for row in canary_rows)
 

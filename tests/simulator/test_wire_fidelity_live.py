@@ -1,4 +1,4 @@
-"""Does the simulator's OpenAI wire format match the real OpenAI API? (PRD §13 risk:
+"""Does the simulator's OpenAI wire format match the real OpenAI API? (The risk:
 "simulator results don't reflect reality".)
 
 This compares **shape, not content**: field names, chunk order, error envelope and header

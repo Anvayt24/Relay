@@ -1,4 +1,4 @@
-"""Semantic-cache evaluation (PRD E-B, M3): how safe is each similarity threshold?
+"""Semantic-cache evaluation: how safe is each similarity threshold?
 
     python -m evals.cache.evaluate              # write metrics.json, report.md, pr_curve.png
     python -m evals.cache.evaluate --check      # fail if the result regressed vs metrics.json
@@ -10,7 +10,7 @@ network, fully deterministic, so CI runs it on every pull request.
 predicted when cosine similarity >= threshold (and, with the lexical guard on, the numbers and
 names in the two prompts match). Then:
 - **precision** = of the hits, the share that were truly acceptable. Wrong hits serve a wrong
-  answer, so this is the number the cache is tuned for (target >= 99%, PRD G4/M3);
+  answer, so this is the number the cache is tuned for (>= 99%, see the protocol below);
 - **hit rate** = hits / all pairs. It reflects how this set was built (roughly 1 in 3 pairs is
   a true paraphrase), *not* production traffic: the report says so.
 
@@ -49,7 +49,7 @@ def clopper_pearson_lower(successes: int, n: int, confidence: float = 0.95) -> f
     """One-sided lower confidence bound for a proportion (exact, Clopper-Pearson).
 
     With zero failures in n trials the bound is ``(1 - confidence) ** (1 / n)``: the "rule of
-    three" behind the PRD's cache sample-size note (about 300 clean hits to show >= 99%).
+    three" behind the cache's sample-size rule (about 300 clean hits to show >= 99%).
     """
     if n == 0:
         return math.nan

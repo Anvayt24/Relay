@@ -12,7 +12,7 @@ The control flow mirrors nested ``async with`` blocks:
 
 **Streams change who exits.** When the provider stage short-circuits with a stream, the
 request is not over: the tokens haven't been sent yet. Finalizing here would log a request
-with no usage and the wrong outcome, and (Phase 6) reconcile a reservation before a single
+with no usage and the wrong outcome, and reconcile a reservation before a single
 token was counted. So ``run()`` does *not* finalize. It returns a ``StreamResult`` holding a
 ``Finalizer``, and whoever holds it (the streaming response) must call it once the stream
 ends. This is an explicit transfer of ownership: exactly one party is responsible for cleanup
@@ -98,7 +98,7 @@ class Pipeline:
                 # something (a reservation, a slot), so it must still be finalized. Unlike
                 # __aexit__, finalize() must therefore cope with partial state.
                 ran.append(stage)
-                # One span per stage (Phase 14), around process() only: finalize runs after
+                # One span per stage, around process() only: finalize runs after
                 # the response and is short. A no-op when tracing is off.
                 with tracing.error_span(f"relay.stage.{stage.name}") as span:
                     result = await stage.process(ctx)

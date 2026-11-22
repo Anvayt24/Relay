@@ -1,4 +1,4 @@
-"""Structured logs that carry the request (PRD FR-8: "request ID propagated through logs").
+"""Structured logs that carry the request ID.
 
 Every log record emitted while a request is being handled gets that request's
 ``request_id``, and the ``trace_id`` / ``span_id`` of the current span, so a log line leads
@@ -13,10 +13,10 @@ How it gets there without passing anything around:
 
 ``RELAY_LOG_FORMAT=text`` keeps human-readable lines (the ids at the end) for local runs.
 
-**Never written on the event loop** (CLAUDE.md: "logging is never on the hot path"; found in
-review: the handler wrote to stderr from the loop). The handler on the loggers is a
-``QueueHandler``: on the caller's thread it only adds the ids (they live in contextvars, so it
-must happen there), renders the message and puts the record on a bounded queue. A
+**Never written on the event loop** (logging is never on the hot path; found in review: the
+handler wrote to stderr from the loop). The handler on the loggers is a ``QueueHandler``: on
+the caller's thread it only adds the ids (they live in contextvars, so it must happen there),
+renders the message and puts the record on a bounded queue. A
 ``QueueListener`` thread formats it and writes it. A full queue drops the line and counts it
 (``relay_log_lines_dropped_total``) instead of blocking the loop.
 """
@@ -43,7 +43,7 @@ REQUEST_ID: ContextVar[str | None] = ContextVar("relay_request_id", default=None
 # The loggers uvicorn configures itself (with propagate=False): ours replace their handlers.
 _UVICORN = ("uvicorn", "uvicorn.error", "uvicorn.access")
 # Libraries that log every HTTP call at INFO. Logging is synchronous I/O, and one line per
-# upstream call would put logging on the request path (FR-8), so they are held at WARNING.
+# upstream call would put logging on the request path, so they are held at WARNING.
 _CHATTY = ("httpx", "httpcore", "huggingface_hub", "urllib3")
 MAX_QUEUED = 10_000
 

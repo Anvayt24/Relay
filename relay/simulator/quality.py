@@ -1,7 +1,7 @@
-"""Ground-truth quality (PRD §11.1): every simulated response is secretly right or wrong.
+"""Ground-truth quality: every simulated response is secretly right or wrong.
 
 Each response carries a hidden attribute ``c ~ Bernoulli(q[model, cohort, t])``. Relay never
-sees it. The evidence experiments (Phases 9-12) do: they know the *true* win-or-tie rate, so
+sees it. The evidence experiments do: they know the *true* win-or-tie rate, so
 they can measure whether Relay's judge, intervals and gates actually find the truth. With
 real providers that is impossible, because nobody knows the true answer.
 
@@ -13,8 +13,8 @@ real providers that is impossible, because nobody knows the true answer.
       1       1     tie   (both acceptable)
       0       0     tie   (both bad: the candidate is not *materially worse*)
 
-**Experiments are stated in w, so the simulator solves for q.** The PRD's decisions are about
-``w`` = P(candidate is not materially worse) = 1 - P(loss). With independent draws,
+**Experiments are stated in w, so the simulator solves for q.** Relay's quality decisions are
+about ``w`` = P(candidate is not materially worse) = 1 - P(loss). With independent draws,
 
     P(loss) = P(c_ref = 1) · P(c_cand = 0) = q_ref · (1 - q_cand)
     ⇒ q_cand = 1 - (1 - w) / q_ref
@@ -26,7 +26,7 @@ so their errors correlate; modelling per-prompt difficulty is out of scope.
 
 **Time is the request index, not the wall clock.** A shift "w drops to 0.85 at request 5000"
 then lands on exactly the same requests in every run, which is what makes a
-detection-delay experiment (PRD M5) reproducible.
+detection-delay experiment reproducible.
 """
 
 from collections.abc import Sequence

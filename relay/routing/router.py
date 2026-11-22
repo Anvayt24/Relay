@@ -1,5 +1,4 @@
-"""Router v1: a trained logistic regression decides cheap vs strong for ``relay/auto``
-(PRD FR-7; ADR 0017).
+"""Router v1: a trained logistic regression decides cheap vs strong for ``relay/auto``.
 
     alias lookup (StaticRouter) ─▶ the route's router alias?   no ─▶ that decision, unchanged
                                               │ yes
@@ -12,12 +11,12 @@
 **What the router never touches.** The static router runs first, so everything it decides
 stays decided: unknown models (404), ``relay/cheap``, ``relay/strong``, and **explicit
 provider-qualified models**, which bypass the router entirely (reason stays ``explicit``, so
-ADR 0011's no-fallback rule still applies to them).
+the no-fallback rule for explicit models still applies to them).
 
 **Every failure routes to strong, and none of them is an error.** No artifact, a corrupt one,
 an artifact trained on a different embedding model, an embedder that is off, still loading,
 failing or slow: each ends in the strong model, with ``router_fallback:<cause>`` as the
-reason and a counter. Strong is the quality-safe default (PRD degradation matrix): the cost of
+reason and a counter. Strong is the quality-safe default: the cost of
 a router failure is money, never answer quality.
 
 **The router does not know about tenants.** It only chooses between the route's own

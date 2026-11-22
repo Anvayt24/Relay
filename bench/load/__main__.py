@@ -1,4 +1,4 @@
-"""``python -m bench.load``: M1(a), the gateway's added latency, for 1 and 2 replicas.
+"""``python -m bench.load``: the gateway's added latency, for 1 and 2 replicas.
 
 For each replica count it brings the load stack up, then runs k6 twice at the same constant
 arrival rate: once straight at the simulator, once through nginx and Relay. The overhead is
@@ -55,17 +55,17 @@ def main() -> None:
     parser.add_argument(
         "--cache",
         action="store_true",
-        help="M1(b): cache on + Postgres/pgvector, unique prompts (embedding on every request)",
+        help="cache on + Postgres/pgvector, unique prompts (embedding on every request)",
     )
     parser.add_argument(
         "--tracing",
         action="store_true",
-        help="Phase 14: trace every request (OTLP to a collector) to measure tracing overhead",
+        help="trace every request (OTLP to a collector) to measure tracing overhead",
     )
     parser.add_argument(
         "--suffix",
         help="results file suffix (default: _cache, _tracing or none), so a comparison run "
-        "never overwrites the committed M1 results",
+        "never overwrites the committed baseline results",
     )
     args = parser.parse_args()
     global VARY
@@ -137,7 +137,7 @@ def main() -> None:
 
 def markdown(report: dict[str, Any]) -> str:
     cache = bool(report.get("cache"))
-    title = "M1(b): cache on, embedding on every request" if cache else "M1(a): passthrough"
+    title = "Cache on, embedding on every request" if cache else "Passthrough"
     if report.get("tracing"):
         title += ", every request traced (OTLP, 100% sampled)"
     what = (

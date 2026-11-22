@@ -1,4 +1,4 @@
-"""Policy bundles, the pointer transitions, and the runtime, without HTTP (ADRs 0023, 0024)."""
+"""Policy bundles, the pointer transitions, and the runtime, without HTTP."""
 
 from datetime import date
 

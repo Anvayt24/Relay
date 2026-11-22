@@ -1,5 +1,4 @@
--- Phase 13: policy bundles, the pointer, and what each request saw (PRD FR-11, §9.4; ADRs
--- 0023, 0024).
+-- Policy bundles, the pointer, and what each request saw.
 
 -- One immutable row per bundle version. `content` is the bundle (router artifacts embedded),
 -- `content_sha256` a hash of its routes: a replica refuses a row whose content doesn't match.

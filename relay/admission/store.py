@@ -16,7 +16,7 @@ how we know the Lua scripts mean what the Python means.
 - ``refund(key, capacity, amount)``: put unused tokens back (a TPM reservation that turned
   out larger than the real usage).
 - ``reserve(budget, res_id, amount, limit, ttl_s)``: hold ``amount`` against a budget, but only
-  if ``committed + outstanding + amount ≤ limit``. This is FR-4's invariant, checked and
+  if ``committed + outstanding + amount ≤ limit``. This is the budget invariant, checked and
   applied as one atomic step.
 - ``settle(budget, res_id, actual)``: the request finished. Release its reservation and commit
   what it really cost. **Idempotent:** a second settle of the same id does nothing, so a retry
@@ -38,7 +38,7 @@ from typing import Protocol
 
 
 class StoreUnavailable(Exception):
-    """The shared store can't be reached. Budgets fail closed on this (PRD §8)."""
+    """The shared store can't be reached. Budgets fail closed on this."""
 
 
 @dataclass(frozen=True)

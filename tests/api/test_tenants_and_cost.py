@@ -1,4 +1,4 @@
-"""Tenant rules (FR-3) and per-request cost (FR-9), through the HTTP API.
+"""Tenant rules and per-request cost, through the HTTP API.
 
 The `limited` tenant in tests/config/test.yaml may call only mock/cheap, defaults to batch
 priority, and allows one cohort tag. The `test` tenant may call both mock models.

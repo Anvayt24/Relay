@@ -2,9 +2,9 @@
 
     OpenAI SDK ─HTTP─▶ Relay ─▶ real adapter ─HTTP─▶ provider simulator
 
-Before Phase 4, Relay called the simulator in-process. Here Relay's ``mock`` provider is a
-*real* HTTP adapter pointed at the simulator's wire format, so the adapter's request building,
-SSE parsing and error mapping run inside the full pipeline, streaming included.
+Here Relay's ``mock`` provider is a *real* HTTP adapter pointed at the simulator's wire
+format, so the adapter's request building, SSE parsing and error mapping run inside the full
+pipeline, streaming included.
 """
 
 from collections.abc import Callable

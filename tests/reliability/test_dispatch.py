@@ -1,4 +1,4 @@
-"""The retry owner end to end, at the dispatcher (PRD FR-5, FR-4; ADR 0008).
+"""The retry owner end to end, at the dispatcher.
 
 Each test scripts the providers behind a fallback graph and asserts on two things: what the
 client gets, and the exact upstream calls made (``provider.calls``). The second is the real

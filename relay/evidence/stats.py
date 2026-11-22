@@ -3,7 +3,7 @@
 Everything here is a small, pure function over lists of booleans, so each one can be checked
 against a hand-worked example.
 
-Labels are **binary** (PRD M7): ``True`` = "loss" (the candidate is materially worse than the
+Labels are **binary**: ``True`` = "loss" (the candidate is materially worse than the
 reference), ``False`` = "win or tie". Binary because ``w``, the quantity every decision is
 stated in, is the win-or-tie rate; and because a three-way label would need a "tie" that
 judges and humans disagree about for reasons that don't matter to ``w``.
@@ -48,7 +48,7 @@ def accuracy(c: Confusion) -> float:
 
 def loss_recall(c: Confusion) -> float:
     """Of the real losses, how many did the judge catch? The number that matters most: a
-    judge that misses losses makes a bad route look safe (PRD M7)."""
+    judge that misses losses makes a bad route look safe."""
     positives = c.tp + c.fn
     return c.tp / positives if positives else math.nan
 
@@ -61,7 +61,7 @@ def win_recall(c: Confusion) -> float:
 def cohen_kappa(c: Confusion) -> float:
     """Agreement beyond chance: (observed - expected) / (1 - expected).
 
-    The "kappa paradox" (PRD M7): when losses are rare, expected agreement is already high, so
+    The "kappa paradox": when losses are rare, expected agreement is already high, so
     kappa can be low even with high raw accuracy. Always report accuracy and per-class recall
     next to it. 1.0 = perfect, 0 = no better than chance, negative = worse than chance.
     """
@@ -108,7 +108,7 @@ def bootstrap_ci(
 
 
 # ---------------------------------------------------------------- prediction-powered inference
-MIN_PPI_LABELED = 50  # PRD Appendix A guard: no rectifier from fewer than 50 human labels
+MIN_PPI_LABELED = 50  # guard: no rectifier from fewer than 50 human labels
 
 
 @dataclass(frozen=True)
@@ -177,7 +177,7 @@ def ppi_mean_ci(
     Variance: ``lambda^2 Var(f)/N + Var(y - lambda f)/n``; the interval is
     ``theta +/- z * sqrt(variance)`` (clipped to [0, 1]).
 
-    Requirements and guards (Appendix A):
+    Requirements and guards:
     - the labeled and judge-only sets must be **disjoint** random samples of the same
       population; otherwise the two means correlate and the variance is wrong (caller's job);
     - **n >= 50**: fewer labels can't support a rectifier;
@@ -236,7 +236,7 @@ def ppi_mean_ci(
     )
 
 
-# ---------------------------------------------------------------- PPI on counts (Phase 12)
+# ---------------------------------------------------------------- PPI on counts
 # With binary labels, a labeled set is fully described by four counts (human x judge) and the
 # judge-only set by two (N, and how many the judge called win-or-tie). Writing PPI++ in counts
 # makes it vectorizable: a bootstrap replicate is one multinomial draw, and the coverage and
@@ -258,8 +258,8 @@ def ppi_from_counts(
     judge label F (1 = win or tie); ``k_unlabeled`` of the ``n_unlabeled`` judge-only items
     were called win-or-tie. Every argument may be an array (broadcast together).
 
-    ``lam`` fixes the weight instead of tuning it (1.0 = classic PPI): see the M5 experiment
-    for why monitoring a *changing* population wants that."""
+    ``lam`` fixes the weight instead of tuning it (1.0 = classic PPI): see the detection-delay
+    experiment for why monitoring a *changing* population wants that."""
     a11, a10, a01, a00 = (np.asarray(x, dtype=float) for x in (n11, n10, n01, n00))
     k, big_n = np.asarray(k_unlabeled, dtype=float), np.asarray(n_unlabeled, dtype=float)
     n = a11 + a10 + a01 + a00
@@ -297,7 +297,7 @@ def ppi_bootstrap_ci(
     replicates. Both samples are resampled independently (they are independent samples), and
     lambda is re-estimated in every replicate, so its own noise is part of the interval.
 
-    Appendix A's fallback for when the Wald interval under-covers (small n, w near 0.95).
+    The fallback for when the Wald interval under-covers (small n, w near 0.95).
     Seeded: the same data gives the same interval."""
     f_u = np.asarray(judge_unlabeled, dtype=bool)
     y = np.asarray(human_labeled, dtype=bool)
@@ -333,7 +333,7 @@ def p_unsafe(estimate: float, se: float, floor: float) -> float:
 
 
 def bonferroni_alpha(alpha: float, looks: int) -> float:
-    """The alpha for each of ``looks`` pre-registered looks (ADR 0019): the chance that *any*
+    """The alpha for each of ``looks`` pre-registered looks: the chance that *any*
     look errs is at most ``alpha``, whatever the correlation between looks."""
     if looks < 1:
         raise ValueError("need at least one look")
@@ -345,7 +345,7 @@ def holm(pvalues: Sequence[float], alpha: float) -> list[bool]:
 
     Sort ascending; reject the i-th smallest (1-based) while p <= alpha / (m - i + 1); stop at
     the first that fails. Uniformly more powerful than Bonferroni, same guarantee. Used for
-    promotions, where one false "safe" ships degraded quality (ADR 0020)."""
+    promotions, where one false "safe" ships degraded quality."""
     m = len(pvalues)
     order = sorted(range(m), key=lambda i: pvalues[i])
     reject = [False] * m
@@ -360,7 +360,7 @@ def benjamini_hochberg(pvalues: Sequence[float], q: float) -> list[bool]:
     """Benjamini-Hochberg: which hypotheses to reject with false-discovery rate <= q.
 
     Find the largest k with p_(k) <= k*q/m and reject the k smallest. Used for regression
-    alerts, where a false alarm costs an investigation, not a bad promotion (ADR 0020)."""
+    alerts, where a false alarm costs an investigation, not a bad promotion."""
     m = len(pvalues)
     order = sorted(range(m), key=lambda i: pvalues[i])
     cutoff = 0
@@ -375,7 +375,7 @@ def benjamini_hochberg(pvalues: Sequence[float], q: float) -> list[bool]:
 
 def samples_needed(estimate: float, se: float, n: int, floor: float, alpha: float) -> int | None:
     """Roughly how many more judged samples until a one-sided test at ``alpha`` can decide,
-    if the estimate stays where it is ("undecided: needs N more", §10.1).
+    if the estimate stays where it is ("undecided: needs N more").
 
     The standard error shrinks like 1/sqrt(n), so reaching a standard error of
     |estimate - floor| / z needs n * (se / se_target)^2 samples in total. None when the

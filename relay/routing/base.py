@@ -1,8 +1,8 @@
-"""The router interface (PRD §9.3, FR-7).
+"""The router interface.
 
 A router answers one question: *which model should serve this request?* It does not call the
 model. Keeping the decision separate from the call means a decision can be logged, evaluated
-offline and A/B-tested (Phases 11-13) without touching provider code.
+offline and A/B-tested without touching provider code.
 """
 
 from dataclasses import dataclass
@@ -30,7 +30,7 @@ class Router(Protocol):
     async def decide(
         self, req: ChatRequest, ctx: "RequestContext", *, shadow: bool = False
     ) -> RouteDecision:
-        """``shadow=True``: a shadow policy's decision (FR-11), logged and never applied. It
+        """``shadow=True``: a shadow policy's decision, logged and never applied. It
         records no metrics (the live decision's counters must only count live decisions) and
         changes nothing on ``ctx``."""
         ...

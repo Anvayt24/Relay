@@ -57,7 +57,7 @@ class LLMJudge:
         adapter: ProviderAdapter,
         *,
         model: str,  # the upstream model id the adapter understands
-        name: str,  # recorded on every result and route card (PRD §10.3)
+        name: str,  # recorded on every result and route card
         rng: random.Random | None = None,
         both_orders: bool = False,
         max_tokens: int = 16,
@@ -81,8 +81,8 @@ class LLMJudge:
         first = await self._once(request, candidate, reference, swapped)
         if not self._both_orders or first.label is None:
             return first
-        # Both orders (PRD §10.3): a verdict that flips with the order was position bias,
-        # so a disagreement is a tie. Costs a second call per pair.
+        # Both orders: a verdict that flips with the order was position bias, so a
+        # disagreement is a tie. Costs a second call per pair.
         second = await self._once(request, candidate, reference, not swapped)
         usage = _sum_usage(first.usage, second.usage)
         if second.label is None:

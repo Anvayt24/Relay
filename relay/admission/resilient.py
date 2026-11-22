@@ -1,4 +1,4 @@
-"""Redis, with the PRD's degradation rules when Redis is down (PRD §8, degradation matrix).
+"""Redis, with degradation rules for when Redis is down.
 
 - **Rate limits (RPM, TPM):** fall back to in-process buckets at limit / replica_count. With
   N replicas each enforcing 1/N, the fleet still stays at or under the configured limit. That

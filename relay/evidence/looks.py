@@ -1,9 +1,9 @@
-"""Pre-registered looks (PRD §10.4; ADR 0019).
+"""Pre-registered looks.
 
 Re-checking a fixed-sample interval every time a judged pair arrives inflates the error rate:
 given enough peeks, a random walk crosses any fixed line, so a merely-adequate route would
-eventually be declared "safe" by chance. E1's answer (without E2's confidence sequences) is
-to decide only at a few looks fixed in advance:
+eventually be declared "safe" by chance. The answer used here (rather than confidence
+sequences) is to decide only at a few looks fixed in advance:
 
 - a look happens each time the judged-pair count (labeled or not) reaches ``every``,
   ``2*every``, ...;

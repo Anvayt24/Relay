@@ -1,4 +1,4 @@
-"""Route cards (PRD §10.8; ADRs 0019-0021): the state machine, looks, pooling and actions."""
+"""Route cards: the state machine, looks, pooling and actions."""
 
 import json
 from dataclasses import replace
@@ -64,7 +64,7 @@ def make_pairs(
 
 
 def calibration_set(judge: str = "judge-a", sensitivity: float = 0.9, false_loss: float = 0.03):  # type: ignore[no-untyped-def]
-    """The judge's M7 numbers from a separate, loss-rich labeled set, as in practice: the
+    """The judge's calibration numbers from a separate, loss-rich labeled set, as in practice: the
     calibration set is stratified so it holds enough losses (at w = 0.98, 200 labels hold only
     about four, too few for kappa or loss recall: the kappa paradox)."""
     cal = make_pairs(
@@ -212,7 +212,7 @@ def test_a_cohort_whose_judge_bias_differs_fails_the_pooling_test() -> None:
     # With two cohorts "this one differs from the rest" is symmetric, so both are flagged:
     # the test can say the bias isn't shared, not which cohort is to blame.
     assert "odd" in pooling_failures(good + odd, 0.05)
-    # Without enough labels in a cohort it isn't tested at all (no power, ADR 0021).
+    # Without enough labels in a cohort it isn't tested at all (no power).
     assert "odd" not in pooling_failures(good + odd[:40], 0.05)
 
 
@@ -285,7 +285,7 @@ def test_routes_and_comparisons_get_separate_cards() -> None:
 
 
 def test_pairs_after_the_look_window_cannot_change_the_decision() -> None:
-    # ADR 0019: the decision at look k uses only the first k * every judged pairs, so the
+    # The decision at look k uses only the first k * every judged pairs, so the
     # same data always replays to the same decision. Pairs arriving after that window (before
     # the next look) must not move the estimate, the interval or the state, however bad.
     base = make_pairs(n_judge=800, n_human=200, w=0.97)  # 1,000 judged: look 2 exactly

@@ -21,7 +21,7 @@ def _router(config: RelayConfig = CONFIG) -> StaticRouter:
     [
         ("relay/cheap", "mock/cheap", "cheap"),
         ("relay/strong", "mock/strong", "strong"),
-        # No trained router yet: "auto" takes the quality-safe default (PRD FR-7).
+        # No trained router yet: "auto" takes the quality-safe default.
         ("relay/auto", "mock/strong", "strong"),
     ],
 )
@@ -36,7 +36,7 @@ async def test_aliases_resolve(ctx: RequestContext, alias: str, model: str, tier
 
 async def test_aliases_are_per_route(ctx: RequestContext) -> None:
     # The "cheap_only" route has no relay/strong: the same alias means different things (or
-    # nothing) depending on the tenant's route (FR-3).
+    # nothing) depending on the tenant's route.
     ctx.route = "cheap_only"
     with pytest.raises(RelayError) as exc:
         await _router().decide(ctx.request.model_copy(update={"model": "relay/strong"}), ctx)

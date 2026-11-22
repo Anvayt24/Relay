@@ -1,4 +1,4 @@
-"""Acceptance test for PRD FR-1: the official OpenAI SDK works against Relay with only
+"""Acceptance test: the official OpenAI SDK works against Relay with only
 ``base_url`` changed, and with the SDK's retries left at their defaults.
 
 Everything runs in-process. The SDK's HTTP client (httpx2, the SDK's own fork of httpx) gets an
@@ -76,7 +76,7 @@ async def test_raw_response_exposes_relay_headers(
 @pytest.mark.parametrize(
     ("provider_and_sdk", "sdk_error", "relay_calls"),
     [
-        # Transient 5xx: Relay itself retries once (Appendix B), so 2 upstream calls.
+        # Transient 5xx: Relay itself retries once, so 2 upstream calls.
         (MockBehavior(error=ErrorClass.SERVER_ERROR), openai.InternalServerError, 2),
         (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError, 2),
         # A 429 is never retried on the same limit: the pause state waits it out.
@@ -97,7 +97,7 @@ async def test_sdk_does_not_retry_errors_relay_returns(
         )
 
     # Exactly Relay's own attempts. Without `x-should-retry: false` the SDK would retry
-    # 429/5xx twice by default, tripling them. Relay is the single retry owner (PRD FR-1).
+    # 429/5xx twice by default, tripling them. Relay is the single retry owner.
     assert provider.calls == relay_calls
     body = exc.value.body
     assert isinstance(body, dict)

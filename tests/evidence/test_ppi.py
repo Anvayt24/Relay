@@ -1,4 +1,4 @@
-"""PPI++ (PRD Appendix A): known values, limits, guards, properties and a coverage simulation."""
+"""PPI++: known values, limits, guards, properties and a coverage simulation."""
 
 import math
 
@@ -99,7 +99,7 @@ def test_interval_always_contains_the_estimate_and_stays_in_unit_range(
     assert 0.0 <= r.ci_low <= r.estimate <= r.ci_high <= 1.0 or math.isclose(r.estimate, 1.0)
 
 
-# ---------------------------------------------------------------- coverage (PRD M6)
+# ---------------------------------------------------------------- coverage
 def coverage(w: float, n: int, runs: int = 1000, big_n: int = 2000, seed: int = 0) -> float:
     """How often the nominal 95% interval contains the true w, over ``runs`` simulations.
 
@@ -128,8 +128,7 @@ def coverage(w: float, n: int, runs: int = 1000, big_n: int = 2000, seed: int = 
     ("w", "n", "floor"),
     [
         # Measured with 1,000 runs (seed 0): 0.953, 0.968, 0.958, 0.948, 0.955, 0.942. Floors
-        # sit a little below, so a real regression fails but sampling noise doesn't. PRD M6
-        # asks for >= 93% everywhere.
+        # sit a little below, so a real regression fails but sampling noise doesn't.
         (0.50, 100, 0.93),
         (0.90, 50, 0.93),
         (0.90, 100, 0.93),
@@ -137,9 +136,9 @@ def coverage(w: float, n: int, runs: int = 1000, big_n: int = 2000, seed: int = 
         (0.95, 100, 0.93),
         (0.95, 300, 0.92),
         # The one regime that falls short (measured 0.918): w near 0.95 with only 50 labels,
-        # exactly where PRD Appendix A warns a Wald interval under-covers. Documented rather
-        # than hidden; below it is a bug, but ~92% here is the method's honest limit, and a
-        # bootstrap interval is the PRD's stated remedy if M6 must hold at n = 50.
+        # exactly where a Wald interval is known to under-cover. Documented rather than
+        # hidden; below it is a bug, but ~92% here is the method's honest limit, and a
+        # bootstrap interval is the remedy if n = 50 needs full coverage.
         (0.95, 50, 0.90),
     ],
 )
@@ -152,9 +151,9 @@ def test_empirical_coverage_of_the_nominal_95_percent_interval(
 def _ppi_reference(
     f_unl: np.ndarray, y: np.ndarray, f_lab: np.ndarray
 ) -> tuple[float, float, float]:
-    """PPI++ written straight from the formulas in ``ppi_mean_ci``'s docstring (PRD Appendix
-    A), on arrays, independently of Relay's implementation (which works on counts). An oracle:
-    if both agree, neither has a slip the other doesn't."""
+    """PPI++ written straight from the formulas in ``ppi_mean_ci``'s docstring, on arrays,
+    independently of Relay's implementation (which works on counts). An oracle: if both agree,
+    neither has a slip the other doesn't."""
     n, big_n = len(y), len(f_unl)
     var_f = float(np.var(f_lab, ddof=1))
     lam = 0.0

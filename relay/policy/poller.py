@@ -1,6 +1,6 @@
-"""Each replica follows the pointer: poll, validate, build, swap (PRD FR-11; ADR 0024).
+"""Each replica follows the pointer: poll, validate, build, swap.
 
-Every ``poll_s`` seconds (default 5, the PRD's config-propagation interval) the poller reads
+Every ``poll_s`` seconds (default 5) the poller reads
 the pointer. When it changed, it fetches the bundles it names, builds them (validation
 included) and swaps the runtime's snapshot. A rollback is therefore live on every replica
 within one poll interval.

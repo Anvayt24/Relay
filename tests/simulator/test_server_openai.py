@@ -1,7 +1,7 @@
 """The simulator's OpenAI wire format, checked with the official OpenAI SDK.
 
-If the real SDK can parse every response, stream and error, then Phase 4's adapters (and
-LiteLLM and the naive client in Phase 8) can talk to the simulator as they would to a real
+If the real SDK can parse every response, stream and error, then Relay's adapters (and
+LiteLLM and the naive client in the benchmarks) can talk to the simulator as they would to a real
 provider. SDK retries are off (max_retries=0) so each test sees exactly one attempt.
 
 Most tests run in-process through httpx2's ASGITransport. The connection-drop tests need a

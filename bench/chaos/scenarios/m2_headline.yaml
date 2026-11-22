@@ -1,5 +1,5 @@
 description: >-
-  PRD M2: 20% of the primary's calls return 429, plus one 60 s hard outage.
+  20% of the primary's calls return 429, plus one 60 s hard outage.
 duration_s: 120
 smoke_duration_s: 20
 rps: 20

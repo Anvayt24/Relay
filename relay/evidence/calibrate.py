@@ -1,4 +1,4 @@
-"""Judge calibration: how far can this judge be trusted? (PRD §10.3, M7)
+"""Judge calibration: how far can this judge be trusted?
 
     python -m relay.evidence.calibrate --pairs pairs.jsonl --labels labels.jsonl \\
         --out calibration.json
@@ -8,10 +8,10 @@ Joins each judged pair with the human's label and reports, on the **binary** lab
 each with a seeded bootstrap interval. **Loss recall** is the one that matters most: a judge
 that misses real losses makes a bad route look safe.
 
-**The gate (M7).** The judge may drive decisions only if kappa >= 0.6 AND loss recall >= 0.7.
+**The calibration gate.** The judge may drive decisions only if kappa >= 0.6 AND loss recall >= 0.7.
 Otherwise the status is ``uncalibrated`` and route cards must say so. With too few labeled
-pairs the status is ``insufficient_n``: a verdict from 30 pairs isn't one. (The PRD's PPI
-guard asks n >= 50 per rectifier scope; the same floor is used here.)
+pairs the status is ``insufficient_n``: a verdict from 30 pairs isn't one. (The PPI guard
+asks n >= 50 per rectifier scope; the same floor is used here.)
 
 Also reported, because they qualify the numbers:
 - **kappa paradox:** losses are rare, so kappa can be low while raw accuracy is high. All
@@ -90,9 +90,9 @@ def calibrate(
 
 
 def passes_gate(n: int, kappa: float, loss_recall: float) -> bool:
-    """The M7 gate, the one place it is written: enough labels, and both numbers clear their
-    floor (NaN, from a confusion matrix with an empty row, never passes). Route cards use it
-    too, through ``JudgeCalibration.calibrated``."""
+    """The calibration gate, the one place it is written: enough labels, and both numbers clear
+    their floor (NaN, from a confusion matrix with an empty row, never passes). Route cards use
+    it too, through ``JudgeCalibration.calibrated``."""
     return n >= MIN_N and kappa >= KAPPA_MIN and loss_recall >= LOSS_RECALL_MIN
 
 

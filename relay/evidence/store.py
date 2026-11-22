@@ -1,4 +1,4 @@
-"""Where evidence lives: judged pairs, human labels and route cards (PRD §9.4).
+"""Where evidence lives: judged pairs, human labels and route cards.
 
 One protocol, two implementations, like the other stores:
 - ``MemoryEvidenceStore``: tests, and a gateway with no database (pairs then live only as long

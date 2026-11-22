@@ -353,8 +353,8 @@ async def test_the_embedding_is_computed_once_and_kept_for_the_router() -> None:
 
 
 async def test_degraded_answers_are_never_cached() -> None:
-    """A fallback answer from an un-evidenced edge must not become everyone's cached answer
-    (ADR 0010). Checked at the stage: the miss is not written when ctx.degraded is set."""
+    """A fallback answer from an un-evidenced edge must not become everyone's cached answer.
+    Checked at the stage: the miss is not written when ctx.degraded is set."""
     import time
 
     from relay.cache.stage import CacheStage

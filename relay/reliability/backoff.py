@@ -1,4 +1,4 @@
-"""Backoff with full jitter, for Relay's one retry (ADR 0008).
+"""Backoff with full jitter, for Relay's one retry.
 
 ``delay = U(0, min(cap, base))``
 

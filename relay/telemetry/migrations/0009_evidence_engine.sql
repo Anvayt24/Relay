@@ -1,10 +1,10 @@
--- Phase 12: the evidence engine (PRD §9.4, §10; ADRs 0019-0022).
+-- The evidence engine.
 --
 -- eval_pairs gains what live shadow pairs need:
 --   policy_version: the bundle that served the request (cards are per policy version);
 --   *_text: prompt and answers, ONLY for tenants whose logging mode is `full`, so those pairs
 --     can be human-labeled. NULL for metadata_only tenants (text_retained = false);
---   cost_nano_usd: list price of the shadow call plus the judge call (M8, the cost report).
+--   cost_nano_usd: list price of the shadow call plus the judge call (for the cost report).
 ALTER TABLE eval_pairs ADD COLUMN policy_version text;
 ALTER TABLE eval_pairs ADD COLUMN prompt_text    text;
 ALTER TABLE eval_pairs ADD COLUMN candidate_text text;
@@ -16,7 +16,7 @@ ALTER TABLE eval_pairs ADD COLUMN cost_nano_usd  bigint;
 CREATE INDEX eval_pairs_route_idx ON eval_pairs (route, comparison, ts);
 
 -- One row per (route, comparison, cohort): the latest card, overwritten by each worker run.
--- The headline fields are columns, for SQL and dashboards; `card` holds the whole §10.8 card.
+-- The headline fields are columns, for SQL and dashboards; `card` holds the whole card.
 CREATE TABLE route_cards (
     route              text        NOT NULL,
     comparison         text        NOT NULL,  -- cheap_vs_strong | fallback:a->b | band:lo-hi | canary:v

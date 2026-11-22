@@ -1,5 +1,5 @@
-"""Public human-labeled pairs for calibrating the judge (PRD §10.2: "human labels come from
-`full`-logging tenants or public datasets"; §10.3: adversarial cases in the calibration set).
+"""Public human-labeled pairs for calibrating the judge (human labels come from `full`-logging
+tenants or public datasets, and the calibration set includes adversarial cases).
 
     python -m evals.judge.public.data      # downloads, converts, writes the frozen files
 

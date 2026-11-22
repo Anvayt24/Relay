@@ -1,4 +1,4 @@
-"""Acceptance tests for streaming through the official OpenAI SDK (PRD FR-1, FR-5).
+"""Acceptance tests for streaming through the official OpenAI SDK.
 
 The SDK's transport here (httpx2.ASGITransport) runs the app to completion and then hands the
 body over, so these tests check *what* is sent, not *when*. Timing and disconnects are covered
@@ -63,7 +63,7 @@ async def test_usage_only_when_requested(sdk: tuple[MockProvider, openai.AsyncOp
     assert last.choices == []
     assert last.usage is not None
     assert last.usage.completion_tokens == 4
-    # The `relay` extension (FR-1) rides along as an extra field; the SDK keeps it instead of
+    # The `relay` extension rides along as an extra field; the SDK keeps it instead of
     # failing to parse. This is the "verify for each SDK you claim to support" check.
     assert last.model_extra is not None
     assert last.model_extra["relay"]["model"] == "mock/cheap"
@@ -84,7 +84,7 @@ async def test_relay_headers_on_stream(sdk: tuple[MockProvider, openai.AsyncOpen
 @pytest.mark.parametrize(
     ("sdk", "sdk_error", "relay_calls"),
     [
-        # overloaded: Relay's own single retry (Appendix B), then the error.
+        # overloaded: Relay's own single retry, then the error.
         (MockBehavior(error=ErrorClass.OVERLOADED), openai.InternalServerError, 2),
         # The role chunk arrived, then the provider failed. Nothing had been sent to the
         # client yet, so it's still a clean HTTP error, not a broken stream.

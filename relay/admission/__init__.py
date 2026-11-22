@@ -1,4 +1,4 @@
-"""Admission control and rate limiting (PRD FR-4). Phase 6.
+"""Admission control and rate limiting.
 
 RPM/concurrency limits and priority queues before the cache. After routing, token and USD
 reservations sized for the worst-case fallback, reconciled with actual usage. Shared pause

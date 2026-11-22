@@ -1,4 +1,4 @@
-# Tracing overhead (Phase 14): the same load stack, with every request traced (100% sampled)
+# Tracing overhead: the same load stack, with every request traced (100% sampled)
 # and its spans exported over OTLP to a collector that only counts them. Comparing this run
 # with an untraced one at the same points measures what tracing costs a request.
 #

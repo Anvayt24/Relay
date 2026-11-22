@@ -1,4 +1,4 @@
-"""The exact-match layer: a key-value cache in Redis (PRD FR-6).
+"""The exact-match layer: a key-value cache in Redis.
 
 The first thing a cacheable request checks, because it is a single O(1) lookup with no model
 involved: identical requests (same tenant, alias, messages and parameters) hit it.

@@ -3,7 +3,7 @@
 **Why Lua.** "Check the budget, then reserve" as two commands is a race: two replicas both
 read "$0.10 left", both reserve $0.08, and the budget is overspent. Redis runs a Lua script
 atomically, with no other command in between, so the check and the write happen as one
-step for the whole fleet. That is what makes FR-4's invariant hold across replicas, not just
+step for the whole fleet. That is what makes the budget invariant hold across replicas, not just
 within one process.
 
 **Why Redis's clock** (``redis.call('TIME')``) inside the scripts: replicas' clocks drift. A

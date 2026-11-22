@@ -1,4 +1,4 @@
-"""Shadow sampling through the real gateway (ADR 0022): what gets sampled, privacy, budget,
+"""Shadow sampling through the real gateway: what gets sampled, privacy, budget,
 and that the user's response never changes."""
 
 import asyncio

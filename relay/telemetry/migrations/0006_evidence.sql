@@ -1,9 +1,9 @@
--- Phase 9: judged evaluation pairs and human labels (PRD §9.4, §10.3).
+-- Judged evaluation pairs and human labels.
 --
 -- A pair is a candidate answer and a reference answer to one prompt, judged by an LLM. Pairs
--- from live traffic (Phase 12's shadow runner) carry request_id and route; calibration and
+-- from live traffic (the shadow runner) carry request_id and route; calibration and
 -- pilot pairs have neither. Prompt and response text is NOT stored here: only a hash, because
--- text is retained only for tenants whose logging mode is `full` (§9.4). The JSONL files hold
+-- text is retained only for tenants whose logging mode is `full`. The JSONL files hold
 -- the text for pairs a human has to read.
 
 CREATE TABLE eval_pairs (

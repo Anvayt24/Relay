@@ -1,4 +1,5 @@
-"""The judge's calibration on the public pairs: the M7 numbers, per judge and per source.
+"""The judge's calibration on the public pairs: the calibration-gate numbers, per judge and
+per source.
 
     python -m evals.judge.public.report     # writes calibration.json and report.md
 
@@ -12,8 +13,8 @@
   be expected to agree with *a* human more than humans agree with each other.
 
 Calibrated on public data, the result says how far the judge can be trusted on *this* kind
-of data. Relay's own traffic (gpt-oss answers, not 2023 models) may differ (PRD §10.4,
-stationarity), and the report says so.
+of data. Relay's own traffic (gpt-oss answers, not 2023 models) may differ (stationarity),
+and the report says so.
 """
 
 import argparse
@@ -104,7 +105,7 @@ def markdown(result: Mapping[str, Any]) -> str:
         "",
         result["caveat"],
         "",
-        f"Pairs: {result['pairs']} ({result['unjudged']} not judged). Gate (M7): kappa >= "
+        f"Pairs: {result['pairs']} ({result['unjudged']} not judged). Calibration gate: kappa >= "
         f"{KAPPA_MIN} and loss recall >= {LOSS_RECALL_MIN} on >= {MIN_N} pairs.",
         "",
         "| judge | rubric | data | n | kappa [95% CI] | loss recall [95% CI] | accuracy | status |",

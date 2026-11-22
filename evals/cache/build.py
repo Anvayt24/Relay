@@ -10,8 +10,8 @@ Writes, next to this file:
 
 The evaluation (`evaluate.py`) reads only these frozen files: it needs no model and no network,
 so it is deterministic and CI can run it. Rebuild only to change the data, then re-run
-`make eval-cache` and commit the new ``metrics.json`` (CLAUDE.md: any change to the cache
-re-runs the eval).
+`make eval-cache` and commit the new ``metrics.json`` (any change to the cache re-runs the
+eval).
 
 **Leakage.** Instances (one fact, e.g. "15% of 200") are split into the tune and test pools
 *first*, by hash, and pairs are drawn only within a pool. So no prompt, and no fact, appears on

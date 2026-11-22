@@ -1,4 +1,4 @@
-"""One log row per request that reached the pipeline, with the right outcome (PRD FR-8).
+"""One log row per request that reached the pipeline, with the right outcome.
 
 Streaming outcomes (failed_midstream, cancelled) are covered in test_streaming_asgi.py, which
 can break connections; here the cases go through a normal HTTP client.
@@ -126,7 +126,7 @@ async def test_requests_succeed_when_postgres_is_unreachable(
         for _ in range(5):
             r = await client.post(CHAT, json=BODY)
             assert r.status_code == 200
-        # /readyz waits for the first policy poll (Phase 13, FR-1). With the database down
+        # /readyz waits for the first policy poll. With the database down
         # that poll fails (a refused connection; about 2 s on Windows) and the replica becomes
         # ready on the YAML policy: degraded, never stuck.
         deadline = time.perf_counter() + 5

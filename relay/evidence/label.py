@@ -2,7 +2,7 @@
 
     python -m relay.evidence.label export --route default --out pairs.jsonl  # from Postgres
     python -m relay.evidence.label --pairs pairs.jsonl --labels labels.jsonl
-    python -m relay.evidence.label import --labels labels.jsonl     # into Postgres (Phase 12)
+    python -m relay.evidence.label import --labels labels.jsonl     # into Postgres
 
 Opens on http://127.0.0.1:8200. Bound to localhost only: it serves prompts and model answers.
 ``import`` loads finished labels into ``human_labels``, where the evidence worker uses them as
@@ -14,7 +14,7 @@ Where the pairs come from:
   labeled; a route with none can't leave ``uncalibrated``.
 - **Pilot or public sets:** ``python -m evals.judge.build_pairs build``, then ``import``.
 
-What makes the labels usable as ground truth for calibrating the judge (PRD §10.3):
+What makes the labels usable as ground truth for calibrating the judge:
 - **Blind.** The page never shows model names, and which response is on the left is random
   per pair (fixed by a seed, so a refresh doesn't reshuffle). You judge the answers, not the
   brand.
@@ -24,7 +24,7 @@ What makes the labels usable as ground truth for calibrating the judge (PRD §10
   instead of all of one kind.
 - **A blind 10% re-label.** Some pairs come back later without any sign that you've seen
   them. Your agreement with yourself is the ceiling on how well anyone, a judge included, can
-  agree with you (PRD: "with a single annotator, re-label a blind 10% subset").
+  agree with you.
 - **Resumable.** Labels are appended to a JSONL file as you go; restarting continues where
   you stopped. Nothing is lost on a crash.
 

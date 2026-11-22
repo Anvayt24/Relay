@@ -1,4 +1,4 @@
-"""Per-tenant concurrency slots with a weighted-fair priority queue (PRD FR-4).
+"""Per-tenant concurrency slots with a weighted-fair priority queue.
 
 Each tenant gets ``concurrency`` slots on this replica. A request takes a slot for its whole
 life (streams included) and gives it back in finalize. When the slots are full, it waits:
@@ -14,7 +14,7 @@ life (streams included) and gives it back in finalize. When the slots are full, 
 - **Bounded waits:** each class has a max wait (2 s interactive, 30 s batch) and a max depth;
   past either, 429. A queue that can grow forever turns an overload into a slow-motion outage.
 
-**Per replica on purpose** (ADR 0007): a shared, cross-replica queue would need polling or
+**Per replica on purpose:** a shared, cross-replica queue would need polling or
 pub/sub to wake waiters. Limits are divided by ``replica_count``, so the fleet total matches
 the configured limit.
 

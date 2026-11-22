@@ -1,4 +1,4 @@
-"""The simulated world for the router evaluation (ADR 0018).
+"""The simulated world for the router evaluation.
 
 The simulator's quality is a per-request coin flip, identical for every prompt, so no
 classifier could beat random on it. A router can only be evaluated where some prompts are
@@ -11,8 +11,8 @@ genuinely harder than others. This module builds such a world:
 - and with **invisible** per-instance noise that nothing can see, so the best possible router is
   still wrong sometimes (irreducible error, like the real world).
 
-**The numbers below are the ones fixed in ADR 0018 before any router was trained. They are not
-tuned afterwards.** The honest framing: a router trained here learns the difficulty structure
+**The numbers below were fixed before any router was trained. They are not tuned
+afterwards.** The honest framing: a router trained here learns the difficulty structure
 built into this world, so results measure the *machinery* (training, thresholding, bootstrap,
 PPI, the CI gate), not real-world savings.
 

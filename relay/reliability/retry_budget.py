@@ -1,12 +1,12 @@
-"""A cap on retries per provider (PRD FR-4: "retries limited to <= 10% of requests per
-provider per window to prevent retry storms").
+"""A cap on retries per provider: by default at most 10% of requests per provider per window,
+to prevent retry storms.
 
 A per-request rule ("retry once") is not enough on its own. If a provider starts failing
 *every* call, "retry once" doubles its load at exactly the moment it is struggling. The
 budget bounds that: over a sliding window, retries may be at most ``ratio`` of first attempts,
 plus a small ``minimum`` so a quiet provider can still have a request or two retried.
 
-Per replica, not shared (ADR 0008). Across N replicas the fleet's cap is N times this one,
+Per replica, not shared. Across N replicas the fleet's cap is N times this one,
 which is still a fixed fraction of traffic, and checking it costs no round trip.
 """
 

@@ -1,5 +1,5 @@
 """Adapter for providers that speak OpenAI's chat-completions format: Groq, OpenRouter, and
-Gemini's OpenAI-compatible endpoint (PRD FR-2).
+Gemini's OpenAI-compatible endpoint.
 
 "Compatible" is never exact. The differences this adapter absorbs, without per-provider
 branches, by parsing tolerantly:
@@ -65,7 +65,7 @@ FinishReason = Literal["stop", "length"]
 ErrorFromEvent = Callable[[dict[str, Any], bool], ProviderError]
 
 # A 429 can mean "slow down for a few seconds" or "you are out for the day": very different
-# reactions (Appendix B). These words in the error mark the second kind.
+# reactions. These words in the error mark the second kind.
 _QUOTA = re.compile(r"insufficient_quota|per[-_ ]?day|daily|credits?")
 _CONTEXT = re.compile(r"context[_ ]length|maximum context|context window|too many tokens|too long")
 _FILTERED = re.compile(r"content[_ ]filter|content management|moderation|flagged|safety")
@@ -189,7 +189,7 @@ class OpenAICompatAdapter:
 
     def _error_from_event(self, payload: dict[str, Any], content_seen: bool) -> ProviderError:
         # An error *inside* a 200 stream (OpenRouter). After content, it can only be
-        # stream_broken (Appendix B); before, classify it like any error.
+        # stream_broken; before, classify it like any error.
         raw = json.dumps(payload).encode()
         _, blob = error_payload(raw)
         if content_seen:
@@ -202,7 +202,7 @@ class OpenAICompatAdapter:
 
 
 def classify(status: int, blob: str) -> ErrorClass:
-    """HTTP status + error text → Appendix B class. Order matters: specific before general."""
+    """HTTP status + error text → ``ErrorClass``. Order matters: specific before general."""
     if status == 402 or (status == 429 and _QUOTA.search(blob)):
         return ErrorClass.QUOTA_EXHAUSTED
     if status == 429:
@@ -290,7 +290,7 @@ class _StreamState:
 
 def _finish(raw: object) -> FinishReason:
     # OpenAI's enum also has tool_calls/function_call/content_filter. Relay's schema accepts
-    # stop|length (tools are unsupported at P0), and anything else ended the answer normally.
+    # stop|length (tools are unsupported), and anything else ended the answer normally.
     return "length" if raw == "length" else "stop"
 
 
@@ -310,8 +310,8 @@ def _usage(raw: object) -> Usage | None:
 
 
 def _estimated_usage(req: ChatRequest, *, completion: int) -> Usage:
-    # Only when the provider reported nothing. Words stand in for tokens; Phase 6's estimator
-    # is used for budgets, and the missing-usage metric says how often this happens.
+    # Only when the provider reported nothing. Words stand in for tokens; admission's token
+    # estimator is used for budgets, and the missing-usage metric says how often this happens.
     prompt = sum(len(m.content.split()) for m in req.messages)
     return Usage(
         prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion

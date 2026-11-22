@@ -56,7 +56,7 @@ async def test_provider_stage_maps_provider_error_to_reject(ctx: RequestContext)
     result = await ProviderStage(build_dispatcher(CONFIG, {"mock": provider})).process(ctx)
 
     # No fallback is configured for this route, so the provider's own class reaches the
-    # client. A timeout is not retried on the same model (Appendix B).
+    # client. A timeout is not retried on the same model.
     assert isinstance(result, Reject)
     assert result.error.status == 504
     [attempt] = ctx.attempts

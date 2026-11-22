@@ -1,4 +1,4 @@
-"""M5: how fast is a silent regression caught, at a matched false-alarm rate? (PRD §10.9 item 1)
+"""How fast is a silent regression caught, at a matched false-alarm rate?
 
 The setting: a model keeps answering with 200s, but its win-or-tie rate drops from 0.95 to 0.85
 (below the 0.90 floor). Judged samples arrive one by one. Three monitors watch the stream:
@@ -16,7 +16,7 @@ regression breaks that on purpose: the human labels are from before the change. 
 losses at w = 0.95 the tuned lambda is about 0.3, so the estimate leans on the stale human mean
 and barely moves when the judge's rate falls (``e1_ppi_pp`` below shows it). With lambda = 1
 the estimate follows the judge, and only the rectifier (the judge's bias, which here changes
-little with w) is stale. This is PRD §10.4's stationarity warning, measured.
+little with w) is stale. This is the stationarity problem, measured.
 
 **Matched false-alarm rate.** A monitor can always be made faster by making it jumpier, so the
 comparison is only fair at equal false alarms. Each monitor's knob (the fixed threshold's

@@ -1,5 +1,5 @@
-"""The single retry owner (PRD FR-5; ADR 0008): one loop that decides, for every request,
-which model to call, whether to retry it, and when to fall back or give up.
+"""The single retry owner: one loop that decides, for every request, which model to call,
+whether to retry it, and when to fall back or give up.
 
     for each candidate (primary, then fallbacks; candidates.py):
         skip it if: marked unavailable · too small a context window · deadline too close ·
@@ -8,12 +8,12 @@ which model to call, whether to retry it, and when to fall back or give up.
         success → done
         failure → record it (breaker, pause, attempt row), then:
                   retry once if transient and the retry budget and deadline allow,
-                  else fall back if Appendix B allows (policy.py), else stop
+                  else fall back if the error policy allows (policy.py), else stop
 
 **The stream boundary.** For a stream, "success" means primed: the first content chunk has
 arrived and nothing has been sent yet. Everything up to that point can fail over
 transparently. After it, the response belongs to the client, and a failure is a mid-stream
-failure, never a switch to another model (FR-5).
+failure, never a switch to another model.
 
 **Every skip and every call is recorded** in ``ctx.attempts`` (hop, retry, error class or
 skip reason). That list is the ``attempts`` table, and it answers "why did this request end
@@ -81,7 +81,7 @@ class _Run:
     """What one request's dispatch has learned so far."""
 
     last_error: ProviderError | None = None
-    stop: bool = False  # a failure that must not fall back (Appendix B)
+    stop: bool = False  # a failure that must not fall back (policy.py)
     deadline_hit: bool = False
     # After context_length_exceeded: only models with a window larger than this.
     context_floor: float | None = None
@@ -143,7 +143,7 @@ class ReliableDispatcher:
             raise RuntimeError("dispatch needs a route decision; RouteStage goes first")
         if ctx.plan is None:
             ctx.plan = plan_candidates(
-                config=ctx.applied.config,  # the request's route policy (ADR 0023)
+                config=ctx.applied.config,  # the request's route policy
                 models=self._models,
                 route=ctx.route,
                 tenant=ctx.tenant,
@@ -275,7 +275,7 @@ class ReliableDispatcher:
     async def _take_provider_capacity(
         self, ctx: RequestContext, spec: ModelSpec, model: str
     ) -> float:
-        """FR-4: traffic is admitted against the capacity of the provider that will serve
+        """Traffic is admitted against the capacity of the provider that will serve
         it, so a primary outage can't stampede a small free-tier fallback. Only providers
         with configured rpm/tpm are limited. 0 = admitted."""
         provider = self._config.providers[spec.provider]
@@ -463,7 +463,7 @@ class ReliableDispatcher:
         last = run.last_error
         if run.stop and last is not None:
             # The request itself was the problem (bad_request, content_filtered): another
-            # model wouldn't help, so the client gets that error, as before Phase 7.
+            # model wouldn't help, so the client gets that error.
             return RelayError.from_provider(last)
         if run.context_error is not None and last is run.context_error:
             # The prompt is too long, and no model with a larger window could take it (none
@@ -481,7 +481,7 @@ class ReliableDispatcher:
         skips = {a.skipped_reason for a in ctx.attempts if a.skipped_reason is not None}
         if not called and skips == {"paused"}:
             # Every candidate is rate limited: nothing failed, it just isn't time yet. The
-            # client may retry after Retry-After (CLIENT_RETRYABLE), exactly as in Phase 6.
+            # client may retry after Retry-After (CLIENT_RETRYABLE).
             return RelayError(
                 429,
                 ErrorClass.PROVIDER_PAUSED,

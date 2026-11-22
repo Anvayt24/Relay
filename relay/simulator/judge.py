@@ -1,10 +1,10 @@
-"""A mock judge with known, tunable errors (PRD §11.1, §10.9).
+"""A mock judge with known, tunable errors.
 
-The real judge (Phase 9) is an LLM that answers "is the candidate *materially worse* than the
-reference?" (the §10.1 rubric). It makes mistakes, and the evidence engine has to correct for
-them (prediction-powered inference, Appendix A). To test that correction, we need a judge
-whose mistakes we control exactly. This is that judge: it looks up the true outcome from the
-ground truth and then lies with set probabilities.
+The real judge is an LLM that answers "is the candidate *materially worse* than the
+reference?" (the rubric in relay/evidence/rubric.py). It makes mistakes, and the evidence
+engine has to correct for them (prediction-powered inference). To test that correction, we
+need a judge whose mistakes we control exactly. This is that judge: it looks up the true
+outcome from the ground truth and then lies with set probabilities.
 
 The verdict is binary, like the rubric: ``"loss"`` or ``"win_or_tie"``. Its errors are two
 numbers, as for any binary classifier:
@@ -17,7 +17,7 @@ numbers, as for any binary classifier:
 Different values for the two give an *asymmetric bias*. One "accuracy" number could not
 express "this judge misses losses but rarely raises false alarms".
 
-(A drifting judge, §10.9 experiment 3, is two of these: evals/evidence/sensitivity.py
+(A drifting judge, as in the judge-drift experiment, is two of these: evals/evidence/sensitivity.py
 calibrates on one set of parameters and judges with another.)
 """
 

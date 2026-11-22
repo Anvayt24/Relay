@@ -1,4 +1,4 @@
--- Phase 10: the semantic cache (PRD FR-6, §9.4; ADR 0015).
+-- The semantic cache.
 --
 -- The cache stores embeddings and replies, never prompt text.
 --

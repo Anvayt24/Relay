@@ -1,4 +1,4 @@
-"""The simulator engine: one codebase behind both front doors (PRD §11.1).
+"""The simulator engine: one codebase behind both front doors.
 
     in-process:  Relay -> ProviderStage -> MockProvider -----+
                                                              |
@@ -92,7 +92,7 @@ class Simulator:
         # Incident windows count from the first request, not from construction. A slow
         # startup (or a test that builds the simulator early) must not eat into the schedule.
         self._t0: float | None = None
-        # Runtime control (`/sim/control`, Phase 8): incidents added while running, and what
+        # Runtime control (`/sim/control`): incidents added while running, and what
         # reached the simulator when. Chaos measures load *where it lands*, so retry
         # amplification and synchronized retry bursts are read from here.
         self._runtime_incidents: list[Incident] = []

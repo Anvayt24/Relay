@@ -13,7 +13,8 @@ Planning is **pure**: no clock, no sleeping, no I/O. So:
 
 There are two planners behind one protocol:
 - ``ScriptedPlanner``: the same fixed ``MockBehavior`` for every request. Unit tests use it
-  to reproduce one exact situation ("fail after 2 chunks"), and it is Phase 1-2's mock.
+  to reproduce one exact situation ("fail after 2 chunks"), through
+  ``MockProvider(MockBehavior(...))``.
 - ``SampledPlanner``: draws each request's plan from a ``Scenario``, with a seed. Chaos, load
   and evidence experiments use it.
 """
@@ -33,7 +34,7 @@ FinishReason = Literal["stop", "length"]
 
 @dataclass(frozen=True)
 class MockBehavior:
-    """A fixed script, applied to every request (the Phase 1-2 mock's knobs)."""
+    """A fixed script, applied to every request (the scripted mock's knobs)."""
 
     latency_s: float = 0.0
     # Raise this class. Without fail_after_chunks it fails immediately, before any chunk.
@@ -41,7 +42,7 @@ class MockBehavior:
     retry_after_s: float | None = None  # sent with the error, as a real 429 would
     reply_prefix: str = "mock: "
 
-    # Streaming faults (PRD M1: slow first token, mid-stream disconnect, stall).
+    # Streaming faults: slow first token, mid-stream disconnect, stall.
     first_chunk_delay_s: float = 0.0
     chunk_delay_s: float = 0.0
     # Fail after this many *content* chunks (0 = after the role chunk, before any text).
@@ -99,7 +100,8 @@ class ScriptedPlanner:
         b = self.behavior
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         # "Tokens" are whitespace-separated words. That is enough to exercise usage accounting
-        # and max_tokens; real tokenizers arrive with admission estimates (Phase 6).
+        # and max_tokens; real tokenizers are used for admission estimates
+        # (relay/admission/tokens.py).
         words = f"{b.reply_prefix}{last_user}".split()
         words, finish_reason = _truncate(words, req.max_tokens)
         return Plan(

@@ -1,6 +1,7 @@
 """The evidence experiments (evals/evidence): their building blocks behave as described, and
-the committed metrics cover what the PRD asks for. ``make eval`` re-runs the reduced gate and
-compares it with the committed numbers; these tests are the fast, focused checks."""
+the committed metrics cover the required regimes and sample sizes. ``make eval`` re-runs the
+reduced gate and compares it with the committed numbers; these tests are the fast, focused
+checks."""
 
 import json
 from pathlib import Path
@@ -85,10 +86,10 @@ def test_a_bad_canary_is_never_promoted_and_a_good_one_never_rolled_back() -> No
 def test_committed_metrics_cover_the_prd() -> None:
     m = json.loads(METRICS.read_text(encoding="utf-8"))
     cells = m["coverage"]["cells"]
-    # M6 must include the small-n and w near 0.95 regimes.
+    # The coverage study must include the small-n and w near 0.95 regimes.
     assert any(c["n_human"] == 50 and c["w"] == 0.95 for c in cells)
     assert m["coverage"]["runs_per_cell"] >= 1000
-    # M5: monitors tuned to the same false-alarm target, on >= 1,000 streams.
+    # Detection: monitors tuned to the same false-alarm target, on >= 1,000 streams.
     det = m["detection"]
     assert det["streams"] >= 1000
     for name in ("fixed_threshold", "e1_matched"):

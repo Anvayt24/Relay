@@ -1,11 +1,11 @@
-"""FR-4's acceptance under real concurrency: many requests at once, through the whole pipeline,
+"""Admission under real concurrency: many requests at once, through the whole pipeline,
 against a simulator that injects faults, with clients disconnecting at random.
 
 Afterwards, whatever happened to each request:
 - no reservation is left outstanding (every one was settled or released);
 - no concurrency slot is leaked, and nobody is left waiting;
-- committed spend ≤ budget + one request's worth of estimation error. That overshoot bound
-  is FR-4's "final overshoot is bounded by token-estimation error".
+- committed spend ≤ budget + one request's worth of estimation error. That is the budget
+  guarantee: the final overshoot is bounded by token-estimation error.
 
 The interleaving differs on every run (that's the point), so the assertions are invariants,
 not exact counts. Seeds make the *choices* reproducible; the scheduling stays real.
@@ -97,8 +97,8 @@ async def test_nothing_leaks_under_concurrent_chaos(seed: int) -> None:
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 async def test_nothing_leaks_with_fallbacks_and_unequal_prices(seed: int) -> None:
-    """Phase 7 version: a failing primary falls back to a pricier model, so reservations must
-    be sized for the worst hop and still settle exactly (FR-4 + FR-5)."""
+    """With fallbacks: a failing primary falls back to a pricier model, so reservations must
+    be sized for the worst hop and still settle exactly."""
     from ..reliability.conftest import FALLBACK_CONFIG  # type: ignore[import-not-found]
 
     rng = random.Random(seed)

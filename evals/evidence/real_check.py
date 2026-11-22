@@ -1,4 +1,4 @@
-"""Real-world sanity check of the online evidence path (PRD §10.9 item 4). NON-REPRODUCIBLE.
+"""Real-world sanity check of the online evidence path. NON-REPRODUCIBLE.
 
     python -m evals.evidence.real_check --provider groq --cheap openai/gpt-oss-20b
         --strong openai/gpt-oss-120b --n 30
@@ -51,7 +51,7 @@ from relay.settings import Settings
 from relay.telemetry.log_writer import MemorySink
 
 HERE = Path(__file__).parent
-PROMPTS = Path("evals/router/real/prompts_raw.jsonl")  # public Dolly prompts (Phase 11)
+PROMPTS = Path("evals/router/real/prompts_raw.jsonl")  # public Dolly prompts
 CALLS_PER_REQUEST = 3  # the answer, the shadow answer, the judge
 
 

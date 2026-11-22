@@ -1,11 +1,11 @@
-"""Router v0: static rules (PRD FR-7). An alias maps to a fixed model through the tenant's
+"""Router v0: static rules. An alias maps to a fixed model through the tenant's
 route; an explicit model name is used as-is.
 
 Lookups use the full Relay name as the key and never split it. Upstream IDs contain slashes
 (``openrouter/meta-llama/<model>:free``), so any code that splits a name has to guess where
 the provider prefix ends. Looking up the whole name removes the guess.
 
-Aliases are per route (FR-3): ``relay/cheap`` is a simulator model on the ``default`` route
+Aliases are per route: ``relay/cheap`` is a simulator model on the ``default`` route
 and a Groq model on ``live``. The tenant decides the route, so two tenants sending the same
 request can reach different models.
 """

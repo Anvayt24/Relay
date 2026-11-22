@@ -34,8 +34,7 @@ help:
 	@echo   eval-judge   validate the judge calibration against the simulator
 	@echo   train-router re-train the router (sklearn) and rewrite its artifact
 	@echo   eval-router  re-run the router eval and rewrite evals/router/sim/metrics.json
-	@echo   eval-evidence re-run the evidence experiments (M5, M6, M8, canary) and rewrite metrics.json
-	@echo   reproduce    (later phase)
+	@echo   eval-evidence re-run the evidence experiments and rewrite metrics.json
 
 install:
 	uv sync --locked
@@ -98,12 +97,12 @@ chaos-smoke:
 chaos:
 	uv run python -m bench.chaos --runs 5
 
-# Load test (M1). Needs Docker: k6 runs in a pinned image, the stack in compose.
+# Load test (gateway overhead). Needs Docker: k6 runs in a pinned image, the stack in compose.
 load:
 	uv run python -m bench.load
 
-# Evals (CLAUDE.md: any change to router, cache or policy re-runs `make eval` and commits the
-# updated metrics.json). `eval` only compares, so CI fails on a regression; `eval-cache`
+# Evals (any change to router, cache or policy re-runs `make eval` and commits the updated
+# metrics.json). `eval` only compares, so CI fails on a regression; `eval-cache`
 # rewrites the baseline. The cache eval reads frozen embeddings: no model, no network.
 eval:
 	uv run python -m evals.cache.evaluate --check

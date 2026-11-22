@@ -1,4 +1,4 @@
-"""The adapter contract suite (PRD FR-2 acceptance): every HTTP adapter, the same checks.
+"""The adapter contract suite: every HTTP adapter, the same checks.
 
 Each adapter talks to the provider simulator's matching wire format, over HTTP but in-process
 (``httpx.ASGITransport``). The simulator reproduces each provider's quirks, so passing here

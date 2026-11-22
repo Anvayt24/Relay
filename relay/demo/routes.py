@@ -158,7 +158,8 @@ async def evidence(request: Request) -> dict[str, Any]:
         "cards": _packaged("cards.json"),
         "live_cards": live,
         "policy": request.app.state.policy_runtime.snapshot().describe(),
-        # The judge's agreement with human labels on public data, and the M7 gate it is held to.
+        # The judge's agreement with human labels on public data, and the calibration gate it
+        # is held to.
         "calibration": _packaged("judge_calibration.json"),
         # Results from the simulator, labelled as such.
         "simulated": _packaged("evidence_sim.json"),

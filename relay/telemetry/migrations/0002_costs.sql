@@ -1,5 +1,5 @@
--- Phase 5: request cost (PRD FR-9). Money is integer nano-USD (1e-9 USD), never floating
--- point: sums over millions of rows must be exact. See relay/config/pricing.py.
+-- Request cost. Money is integer nano-USD (1e-9 USD), never floating point:
+-- sums over millions of rows must be exact. See relay/config/pricing.py.
 -- Nullable: a request that never reached a provider has no usage, so no cost.
 
 ALTER TABLE requests

@@ -1,4 +1,4 @@
-"""TrainedRouter decisions (ADR 0017): thresholds, bypasses, and every failure -> strong."""
+"""TrainedRouter decisions: thresholds, bypasses, and every failure -> strong."""
 
 import time
 from typing import Any
@@ -110,7 +110,7 @@ async def test_routes_without_a_router_are_untouched() -> None:
 async def test_a_cheap_routed_request_keeps_its_fallbacks() -> None:
     config = routed_config()
     d = await decide(router(config), chat(EASY), config)
-    # `router` is not `explicit`, so ADR 0011's no-fallback rule doesn't apply.
+    # `router` is not `explicit`, so the explicit-model no-fallback rule doesn't apply.
     ctx = make_ctx(chat(EASY), config)
     plan = plan_candidates(
         config=config,

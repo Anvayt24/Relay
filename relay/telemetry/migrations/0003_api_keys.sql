@@ -1,4 +1,4 @@
--- Phase 5: API keys (PRD FR-3). Only HMAC-SHA256(pepper, key) is stored, never the key.
+-- API keys. Only HMAC-SHA256(pepper, key) is stored, never the key.
 -- Tenants themselves live in the YAML config; this table maps a key to a tenant id.
 
 CREATE TABLE api_keys (

@@ -1,5 +1,4 @@
-"""Policy bundles: an immutable, versioned snapshot of every route's *policy* (PRD FR-11;
-ADR 0023).
+"""Policy bundles: an immutable, versioned snapshot of every route's *policy*.
 
 A bundle holds what decides how a request is served, per route:
 
@@ -86,7 +85,7 @@ class PolicyBundle(BaseModel):
 
 
 def next_version(existing: list[str], today: date | None = None) -> str:
-    """``YYYY-MM-DD.N``: the next free N for today (PRD §10.8's example "2026-10-20.3")."""
+    """``YYYY-MM-DD.N``: the next free N for today (e.g. "2026-10-20.3")."""
     day = (today or datetime.now(UTC).date()).isoformat()
     taken = [int(v.rsplit(".", 1)[1]) for v in existing if v.startswith(day + ".")]
     return f"{day}.{max(taken, default=0) + 1}"

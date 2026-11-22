@@ -125,7 +125,7 @@ async def test_unparseable_or_failed_calls_are_abstentions() -> None:
 
 async def test_both_orders_turns_a_flip_into_a_tie() -> None:
     # Always answers "A_worse": pure position bias. Candidate-as-A says loss, candidate-as-B
-    # says win. They disagree, so the pair is a tie (PRD §10.3).
+    # says win. They disagree, so the pair is a tie.
     adapter = FakeAdapter(*['{"verdict": "A_worse"}'] * 2)
     judge = LLMJudge(adapter, model="m", name="j", rng=random.Random(0), both_orders=True)
     result = await judge.judge(request="q", candidate="a", reference="b")

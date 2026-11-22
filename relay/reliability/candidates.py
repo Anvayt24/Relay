@@ -1,4 +1,4 @@
-"""Which models may serve a request, in what order (PRD FR-5; ADRs 0008, 0010, 0011).
+"""Which models may serve a request, in what order.
 
 ``plan_candidates`` turns a route decision into an ordered list:
 
@@ -11,12 +11,12 @@
 Then the tenant's policy filters and orders the fallbacks:
 - **strict:** only ``safe`` edges and ungated (``quality_gate: none``) edges.
 - **allow_degraded:** every edge, stably sorted safe → undecided → unsafe. ``unsafe`` lands
-  last, so it is used "only if nothing better exists" (FR-5): only once everything before it
+  last, so it is used "only if nothing better exists": only once everything before it
   has failed or been skipped.
 - **explicit model** (``reason == "explicit"``): no fallbacks at all, unless the tenant opted
-  in with ``fallback_on_explicit_model`` (ADR 0011).
+  in with ``fallback_on_explicit_model``.
 - **shadow call** (``reason == "shadow"``, the evidence engine): never a fallback. Evidence
-  about model X must come from model X (ADR 0022).
+  about model X must come from model X.
 
 This is a *static* plan: what the config and policy allow. Whether a candidate is usable
 *right now* (paused, breaker open, out of capacity, deadline) is decided per attempt by the
@@ -51,7 +51,7 @@ class Candidate:
 
     @property
     def degraded(self) -> bool:
-        """Served through an edge without evidence that it is good enough (ADR 0010)."""
+        """Served through an edge without evidence that it is good enough."""
         return self.state in ("undecided", "unsafe")
 
 

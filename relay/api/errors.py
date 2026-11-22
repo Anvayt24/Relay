@@ -7,7 +7,7 @@ A gateway that is "OpenAI-compatible" only on success is not compatible.
 
 Almost every error response sets ``x-should-retry: false``. The Stainless-generated OpenAI SDKs
 obey this header before their own rules, which would otherwise retry 408/409/429/5xx twice.
-Relay is the single retry owner (FR-1): when it returns an error it has already retried, or
+Relay is the single retry owner: when it returns an error it has already retried, or
 retrying cannot help. If the SDK retried too, one request would multiply into 3x Relay's
 attempts upstream, which is the retry-storm pattern.
 

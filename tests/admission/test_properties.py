@@ -1,11 +1,11 @@
-"""Property-based tests for admission (CLAUDE.md: budget/admission code requires them).
+"""Property-based tests for admission.
 
 Example tests check the cases we thought of. Here hypothesis *generates* thousands of
 operation sequences (reserves, settles, double settles, clock jumps, expiries) and checks that
 the rules hold after every single step. When it finds a failure, it shrinks it to the
 shortest sequence that still fails.
 
-The properties, from PRD FR-4's acceptance criteria:
+The properties:
 1. **Budget:** at every admission decision, ``committed + outstanding + amount ≤ limit``, and
    the store agrees with a simple model of what it should contain.
 2. **Reconcile:** at the end, nothing is left outstanding; every reservation was settled,
@@ -80,7 +80,7 @@ class BudgetMachine(RuleBasedStateMachine):
         self.next_id += 1
         held = sum(a for a, _ in self.outstanding.values())
         ok = run(self.store.reserve("b", res_id, amount=amount, limit=LIMIT, ttl_s=ttl))
-        # THE invariant (FR-4): admitted only if it fits, and always admitted if it fits.
+        # THE invariant: admitted only if it fits, and always admitted if it fits.
         assert ok == (self.committed + held + amount <= LIMIT)
         if ok:
             self.outstanding[res_id] = (amount, self.clock.t + ttl)

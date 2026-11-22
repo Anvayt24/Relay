@@ -1,6 +1,6 @@
 """Postgres sink for request-log rows.
 
-**Relay must start and serve with Postgres down** (PRD §8, degradation matrix). So the pool is
+**Relay must start and serve with Postgres down**. So the pool is
 created with ``min_size=0``: creating it opens no connection, and a database that's down at
 boot costs nothing until the first write. That write fails, the LogWriter backs off, and rows
 are eventually dropped and counted. Requests never notice.

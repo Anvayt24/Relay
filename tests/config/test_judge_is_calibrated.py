@@ -1,4 +1,5 @@
-"""A route may only use a judge that passed the M7 gate against human labels.
+"""A route may only use a judge that passed the calibration gate against human labels
+(kappa >= 0.6 and loss recall >= 0.7 on >= 50 labels).
 
 The result lives in evals/judge/public/calibration.json, which `make reproduce` regenerates.
 One judge = one model plus one rubric version: Sonnet on rubric v2 passing says nothing about

@@ -1,4 +1,4 @@
-"""Router evaluation (PRD E-A, M4; ADR 0018).
+"""Router evaluation.
 
     python -m evals.router.evaluate                  # write metrics.json, report.md, curve.png
     python -m evals.router.evaluate --check          # fail if the committed baseline regressed
@@ -11,12 +11,12 @@ between platforms, which would break an exact-equality gate. A test checks that 
 reproduces the artifact's predictions.)
 
 **Policy quality.** A policy sends each request cheap or strong. Its quality is the mean over
-requests of 1 if it was sent strong (a tie with the strong model by construction, FR-7) and
+requests of 1 if it was sent strong (a tie with the strong model by construction) and
 otherwise the cheap model's win-or-tie outcome. Always-strong is therefore 1.0; always-cheap
 is the cheap model's win-or-tie rate; a router sits in between. The x-axis is the **share sent
 strong**.
 
-**Choosing the threshold (M4).** On the *validation* split only: the most aggressive threshold
+**Choosing the threshold.** On the *validation* split only: the most aggressive threshold
 (largest cheap share) whose one-sided 95% lower bound on policy quality is >= 0.95, scanning down
 from the safest threshold and stopping at the first failure (so one lucky dip below the line
 can't pick it). Then it is *reported* on the *test* split. On validation the quality estimate
@@ -24,9 +24,9 @@ is **PPI-corrected** (judge labels on every prompt, corrected by the gold subset
 procedure, because the judge alone is biased.
 
 **Three estimates of test quality, side by side:** ground truth (known in the simulation),
-judge-only (biased by the judge's errors), and PPI-corrected (the circularity fix PRD FR-7
-asks for). For real data there is no ground truth: quality is judge-only unless a human-labeled
-gold subset exists, and the report says so.
+judge-only (biased by the judge's errors), and PPI-corrected (the circularity fix). For
+real data there is no ground truth: quality is judge-only unless a human-labeled gold subset
+exists, and the report says so.
 """
 
 import argparse
@@ -49,8 +49,8 @@ from relay.routing.artifact import load as load_artifact
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = ROOT / "relay" / "routing" / "artifacts"
-M4_FLOOR = 0.95  # lower bound of policy quality (PRD M4)
-M4_TARGET_SHARE = 0.40  # share sent to the cheap model (PRD M4 target)
+M4_FLOOR = 0.95  # lower bound of policy quality
+M4_TARGET_SHARE = 0.40  # share sent to the cheap model
 THRESHOLDS = np.round(np.arange(0.0, 1.0 + 1e-9, 0.005), 4)
 N_BOOT = 1000
 SEED = 0
@@ -116,7 +116,7 @@ def lower_bound_one_sided(view: dict[str, np.ndarray], cheap: np.ndarray) -> tup
 
 
 def select_threshold(ds: Dataset, scores: np.ndarray) -> dict[str, Any]:
-    """The M4 threshold from the validation split alone (see module docstring)."""
+    """The threshold, chosen from the validation split alone (see module docstring)."""
     val = split_view(ds, scores, "val")
     chosen: float | None = None
     rows = []
@@ -263,7 +263,7 @@ def evaluate_world(ds: Dataset, artifact: RouterArtifact, threshold: float | Non
             )
 
     return {
-        "what": "router evaluation on the held-out test split (ADR 0018)",
+        "what": "router evaluation on the held-out test split",
         "world": ds.name,
         "dataset": {
             "rows": len(ds.rows),
@@ -338,12 +338,12 @@ def write_report(metrics: dict[str, Any], path: Path) -> None:
         f"# Router evaluation: {metrics['world']} world",
         "",
         (
-            "**Simulated world.** Difficulty was built into the prompts (ADR 0018), so this "
+            "**Simulated world.** Difficulty was built into the prompts, so this "
             "measures the *machinery* (training, thresholding, bootstrap, PPI, the CI gate), "
             "not real-world savings."
             if simulated
             else "**Real data, uncalibrated judge.** Labels come from an LLM judge that has not "
-            "passed the M7 gate (no human labels yet), the set is small, so treat every interval "
+            "been calibrated against human labels yet, the set is small, so treat every interval "
             "as wide and nothing here may drive a decision."
         ),
         "",
@@ -351,16 +351,14 @@ def write_report(metrics: dict[str, Any], path: Path) -> None:
         f"Test split: {metrics['dataset']['splits']['test']} prompts, "
         f"{metrics['dataset']['test_gold']} of them gold-labeled.",
         "",
-        f"## Headline (M4: lower 95% bound of policy quality >= {M4_FLOOR}, share to cheap >= "
-        f"{M4_TARGET_SHARE:.0%})",
+        f"## Headline (quality floor: lower 95% bound of policy quality >= {M4_FLOOR})",
         "",
         f"- Threshold, chosen on **validation** only: **{h['threshold']}** "
         + ("" if sel["met"] else "(no threshold met the floor on validation: nothing goes cheap)"),
-        f"- On **test**, **{h['cheap_share']:.1%}** of requests go to the cheap model "
-        f"(target {M4_TARGET_SHARE:.0%}: {'met' if h['meets_share_target'] else 'NOT met'}).",
+        f"- On **test**, **{h['cheap_share']:.1%}** of requests go to the cheap model.",
         f"- Quality vs {h['quality_basis'].replace('_', ' ')}: **{h['quality']:.4f}**, one-sided 95% "  # noqa: E501
         f"lower bound **{h['quality_lower_95']:.4f}** "
-        f"(floor {M4_FLOOR}: {'met' if h['meets_quality_floor'] else 'NOT met'}).",
+        f"(floor {M4_FLOOR}: {'above' if h['meets_quality_floor'] else 'below'}).",
         f"- Judge-only estimate (biased by the judge's errors): {h['judge_only_quality']:.4f}.",
     ]
     if "ppi" in h:

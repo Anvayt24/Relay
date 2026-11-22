@@ -1,4 +1,4 @@
-"""The policy CLI (PRD FR-11; ADR 0024). Needs RELAY_DATABASE_URL.
+"""The policy CLI. Needs RELAY_DATABASE_URL.
 
     python -m relay.policy create [--config relay.yaml] [--note "..."]   # bundle the YAML policy
     python -m relay.policy list                                          # bundles

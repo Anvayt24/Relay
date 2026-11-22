@@ -1,4 +1,4 @@
-"""Loads and validates the YAML config (PRD FR-3: "an invalid config fails startup").
+"""Loads and validates the YAML config: an invalid config fails startup.
 
 The shipped default is ``relay/config/relay.yaml``, inside the package, so it travels with
 the code into the image. ``RELAY_CONFIG_PATH`` points at another file.

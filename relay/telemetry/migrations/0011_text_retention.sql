@@ -1,5 +1,5 @@
--- Per-tenant retention of prompt and response text (PRD §8 Privacy: "per-tenant retention for
--- `full` logging"). Found in review: `retention_days` was declared and never enforced.
+-- Per-tenant retention of prompt and response text for `full` logging. Found in review:
+-- `retention_days` was declared and never enforced.
 --
 -- Only shadow pairs of `full`-logging tenants hold text. Each such row records when its text
 -- expires, fixed when it is written (now + the tenant's retention_days), so the purge needs no

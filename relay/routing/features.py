@@ -1,4 +1,4 @@
-"""What the router looks at (PRD FR-7): the meaning of the prompt, plus a few cheap facts.
+"""What the router looks at: the meaning of the prompt, plus a few cheap facts.
 
 A feature vector is two blocks laid end to end:
 
@@ -39,7 +39,7 @@ N_SCALARS = len(SCALAR_NAMES)
 
 
 def last_user_text(req: ChatRequest) -> str:
-    """The last user message, normalized. FR-7: the router decides from what is being asked
+    """The last user message, normalized. The router decides from what is being asked
     *now*, not from earlier turns. A request with no user message gets the empty string."""
     for message in reversed(req.messages):
         if message.role == "user":
@@ -67,7 +67,7 @@ def scalar_features(text: str, *, turns: int = 1, tools: bool = False) -> list[f
 def request_scalars(req: ChatRequest) -> tuple[str, list[float]]:
     """(the text the embedding is computed from, its scalar features) for a request."""
     text = last_user_text(req)
-    # Tools are rejected at P0 (FR-1), so this is always False today; the slot exists so the
+    # Requests with tools are rejected, so this is always False today; the slot exists so the
     # layout won't change when tool pass-through arrives.
     return text, scalar_features(text, turns=count_turns(req), tools=False)
 

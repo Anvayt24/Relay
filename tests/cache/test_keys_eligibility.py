@@ -123,7 +123,7 @@ ON = TenantCache(enabled=True, semantic=True)
         ({}, ON, True, False, False, "no_store"),
         ({"temperature": 0.7}, ON, False, False, False, "temperature"),
         ({"temperature": None}, ON, False, False, False, "temperature"),  # unset != 0
-        # n > 1 never reaches the cache: the schema rejects it (FR-1); check() still guards it.
+        # n > 1 never reaches the cache: the schema rejects it; check() still guards it.
         ({}, TenantCache(enabled=True, max_prompt_tokens=1), False, False, False, "too_large"),
     ],
 )

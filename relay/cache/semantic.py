@@ -1,4 +1,4 @@
-"""The semantic layer: find a stored prompt that is *close enough* in meaning (PRD FR-6).
+"""The semantic layer: find a stored prompt that is *close enough* in meaning.
 
 An exact cache only helps when the same words are repeated. The semantic layer also catches
 paraphrases ("what's the capital of France" / "France's capital city?"), by comparing prompt
@@ -13,8 +13,8 @@ embedding space and still need *different* answers ("15% of 200" / "15% of 300")
 - Entries live in a **namespace** (tenant, alias, system prompt, parameters, ``keys.py``):
   a lookup only ever sees its own namespace's entries.
 
-Two implementations behind one protocol: ``PgVectorStore`` (Postgres + pgvector, HNSW index;
-ADR 0015) for the running gateway, and ``MemorySemanticStore`` (brute force) for tests and the
+Two implementations behind one protocol: ``PgVectorStore`` (Postgres + pgvector, HNSW index)
+for the running gateway, and ``MemorySemanticStore`` (brute force) for tests and the
 evaluation, which share the exact matching rules.
 
 **Two things keep the Postgres lookup honest over time** (both found in review):

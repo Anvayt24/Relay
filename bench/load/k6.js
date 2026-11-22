@@ -23,7 +23,7 @@ export const options = {
 
 // VARY=1 makes every prompt unique (and temperature 0, so it is cache-eligible): each request
 // misses the exact cache, pays for an embedding and a vector lookup, then the provider call and
-// the write-back. That is the heaviest path the cache adds (M1(b)).
+// the write-back. That is the heaviest path the cache adds.
 const vary = __ENV.VARY === "1";
 function body() {
   return JSON.stringify({

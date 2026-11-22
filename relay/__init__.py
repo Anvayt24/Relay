@@ -1,6 +1,6 @@
 """Relay: an OpenAI-compatible LLM gateway.
 
-The subpackages follow the request path described in docs/PRD.md §9:
+The subpackages follow the request path:
 
     api -> pipeline (auth -> admission -> cache -> routing -> reservation -> providers)
                                                      -> telemetry (async logging)

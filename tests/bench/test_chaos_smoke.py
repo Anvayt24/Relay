@@ -1,8 +1,8 @@
-"""Compressed chaos runs asserting the documented behavior (PRD §11.3). Real subprocesses
+"""Compressed chaos runs asserting the documented behavior. Real subprocesses
 (simulators + Relay), on localhost, no network. ``make chaos-smoke``; excluded from
 ``make check``.
 
-Thresholds are deliberately loose: event interleaving is not deterministic (PRD §11.1), so
+Thresholds are deliberately loose: event interleaving is not deterministic, so
 these assert behavior ("the outage is served via the fallback"), not exact numbers.
 """
 
@@ -34,7 +34,7 @@ async def test_429_storm_is_not_amplified_into_a_retry_spike() -> None:
     relay, naive = one(r, "relay"), one(r, "naive_retry")
     assert relay["success_rate"] >= 0.97
     assert relay["retry_amplification"] < 1.5 < naive["retry_amplification"]
-    # The pause state stops Relay calling a limited primary at all (FR-4), so the primary
+    # The pause state stops Relay calling a limited primary at all, so the primary
     # sees fewer synchronized spikes than from clients retrying on a fixed schedule. (Poisson
     # arrivals alone peak at about 3x the mean in a 100 ms bucket, so compare, don't cap.)
     assert relay["primary_burstiness"] < naive["primary_burstiness"]
@@ -43,9 +43,9 @@ async def test_429_storm_is_not_amplified_into_a_retry_spike() -> None:
 async def test_sick_primary_trips_the_breaker_and_midstream_drops_are_never_silent() -> None:
     r = await run_scenario("midstream_drop", ("relay", "direct"), 1, smoke=True)
     relay, direct = one(r, "relay"), one(r, "direct")
-    # Half the primary's streams break after the first byte. Those can't fail over (FR-5): a
-    # direct client loses them. Relay loses a few too, until its breaker opens (stream_broken
-    # counts, ADR 0009), then serves everything from the fallback.
+    # Half the primary's streams break after the first byte. Those can't fail over (no model
+    # switch after the first byte): a direct client loses them. Relay loses a few too, until
+    # its breaker opens (stream_broken counts), then serves everything from the fallback.
     assert direct["success_rate"] < 0.7
     assert relay["success_rate"] > direct["success_rate"]
     assert relay["primary_calls"] >= 10  # the breaker needs its minimum calls to open

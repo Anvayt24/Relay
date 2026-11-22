@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing, hand-written (PRD FR-8; ADR 0025).
+"""OpenTelemetry tracing, hand-written.
 
 One trace per request, shaped like the pipeline:
 
@@ -177,7 +177,7 @@ def skipped(model: str, provider: str, hop: int, reason: str | None) -> None:
 
 
 def annotate(ctx: "RequestContext", outcome: "Outcome") -> None:
-    """The request's outcome on its root span (FR-8's attribute list), set once at the end."""
+    """The request's outcome on its root span, set once at the end."""
     span = ctx.span if ctx.span is not None else trace.get_current_span()
     if not span.is_recording():
         return

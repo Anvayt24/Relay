@@ -1,4 +1,4 @@
-"""The policy a replica is serving, swapped atomically, read once per request (ADR 0023).
+"""The policy a replica is serving, swapped atomically, read once per request.
 
     PolicyRuntime ── snapshot() ──▶ PolicySnapshot(active, candidate, mode, canary_pct)
                                          │ one per request, immutable
@@ -87,7 +87,7 @@ class PolicySnapshot:
 
 def canary_arm(version: str, key: str, pct: int) -> Arm:
     """Deterministic: the same key always lands in the same arm for one canary (stickiness),
-    and a new canary version reshuffles everyone (FR-11). blake2b, not Python's hash(), which
+    and a new canary version reshuffles everyone. blake2b, not Python's hash(), which
     is randomized per process and would put a session in different arms on different
     replicas."""
     digest = hashlib.blake2b(f"{version}|{key}".encode(), digest_size=8).digest()

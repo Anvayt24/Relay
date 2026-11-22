@@ -1,4 +1,4 @@
-"""The trained router, as a file (ADR 0017).
+"""The trained router, as a file.
 
 A logistic regression is just numbers: one weight per feature, a bias, and the scaling used on
 the scalar features. So the artifact is a small **JSON file**, not a pickle:

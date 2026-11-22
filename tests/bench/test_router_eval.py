@@ -330,7 +330,7 @@ def test_the_real_baseline_equals_a_fresh_evaluation(real: Dataset) -> None:
 
 
 def test_the_real_router_is_not_wired_into_any_shipped_route() -> None:
-    # No route may use an artifact whose judge is uncalibrated (ADR 0017 / PRD §10.3).
+    # No route may use an artifact whose judge is uncalibrated.
     for name, route in load_config(None).routes.items():
         if route.router is not None:
             assert "real" not in route.router.artifact, name

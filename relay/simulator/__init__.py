@@ -1,4 +1,4 @@
-"""The provider simulator (PRD §11.1): a fake LLM provider whose behavior is known exactly.
+"""The provider simulator: a fake LLM provider whose behavior is known exactly.
 
 Reading order, from the pure core outwards:
 
@@ -12,7 +12,6 @@ Reading order, from the pure core outwards:
 - ``engine``:   ``Simulator`` gates and plans a request, and ``Call`` executes the plan.
 - ``server``:   HTTP mode, speaking OpenAI's and Anthropic's wire formats.
 
-Why this lives in ``relay/`` and not ``bench/simulator/`` (PRD §9.6): the PRD also makes the
-simulator Relay's in-process ``mock`` provider, and the Docker image ships only the ``relay``
-package. See ADR 0004.
+Why this lives in ``relay/`` and not ``bench/simulator/``: the simulator is also Relay's
+in-process ``mock`` provider, and the Docker image ships only the ``relay`` package.
 """

@@ -1,4 +1,4 @@
-"""Fallback edge states (PRD FR-5 edge-usability table; ADR 0010).
+"""Fallback edge states.
 
 An edge with ``quality_gate: required`` may serve traffic only according to its *evidence*:
 - ``safe``: the target is known to be good enough;
@@ -7,8 +7,8 @@ An edge with ``quality_gate: required`` may serve traffic only according to its 
 
 Two sources sit behind the ``EdgeStateSource`` protocol, so the dispatcher never knows which
 it has:
-- ``SeededEdgeStates`` reads each edge's ``seed_state`` from the YAML: the stand-in for the
-  PRD's offline seeding run (§10.2), used when a route has no evidence engine;
+- ``SeededEdgeStates`` reads each edge's ``seed_state`` from the YAML: the stand-in for an
+  offline seeding run, used when a route has no evidence engine;
 - ``CardBoard`` (``relay/evidence/board.py``) follows the route cards the evidence worker
   writes, falling back to the seed state for an edge with no card yet.
 """

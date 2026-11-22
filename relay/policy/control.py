@@ -1,9 +1,9 @@
-"""The policy control operations, as pure transitions of the pointer (ADR 0024).
+"""The policy control operations, as pure transitions of the pointer.
 
     activate v   v active; the old active becomes previous; any candidate is cleared
     shadow v     v is the candidate, deciding in the background, never applied
     canary v p   v is the candidate, serving p% of requests
-    promote      the candidate becomes active (a human's decision: ADR 0022)
+    promote      the candidate becomes active (a human's decision)
     rollback     with a candidate: drop it (the active policy never changed);
                  without one: the previous version becomes active again
 

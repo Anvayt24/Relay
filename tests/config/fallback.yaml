@@ -1,4 +1,4 @@
-# Fallback-graph shapes for the Phase 7 reliability tests. Every provider is an in-process
+# Fallback-graph shapes for the reliability tests. Every provider is an in-process
 # mock; tests pass their own adapters per provider name.
 price_table_version: "test-fallback-1"
 

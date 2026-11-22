@@ -56,7 +56,7 @@ class JudgeSettings:
 
 # Per judge:
 # - flash-lite answers directly: 16 tokens hold a v1 verdict. Free tier ~15 requests/minute.
-# - gpt-oss-20b reasons before answering (the Phase 9 pilot needed ~200 tokens).
+# - gpt-oss-20b reasons before answering (an earlier pilot needed ~200 tokens).
 # - Gemini Flash thinks by default, and its thoughts count against max_tokens, so it gets
 #   room; on the free tier its tokens cost nothing.
 # - Claude Sonnet 5.5 runs with thinking off (NoThinkingAnthropic): 600 tokens hold a reason

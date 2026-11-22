@@ -1,6 +1,6 @@
 """The simulator's Anthropic wire format, checked with the official Anthropic SDK.
 
-Phase 4's Anthropic adapter will be tested against this, so the details that differ from
+Relay's Anthropic adapter is tested against this, so the details that differ from
 OpenAI are what these tests pin down:
 - system as a top-level field;
 - usage split across stream events;
