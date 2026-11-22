@@ -36,6 +36,7 @@ import asyncio
 import json
 import random
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from relay.evidence.calibrate import read_labels
 from relay.evidence.pairs import EvalPair, read_jsonl, write_jsonl
 from relay.evidence.store import HumanLabel, PostgresEvidenceStore
 from relay.settings import Settings
@@ -240,20 +242,19 @@ def human_labels(rows: list[dict[str, Any]]) -> list[HumanLabel]:
     ]
 
 
-async def _export(route: str, limit: int, dsn: str) -> list[EvalPair]:
+def _dsn() -> str:
+    dsn = Settings().database_url
+    if not dsn:
+        raise SystemExit("RELAY_DATABASE_URL is not set")
+    return dsn
+
+
+async def _with_store[T](dsn: str, work: Callable[[PostgresEvidenceStore], Awaitable[T]]) -> T:
+    """Run ``work`` against a started store, and close it however ``work`` ends."""
     store = PostgresEvidenceStore(dsn)
     await store.start()
     try:
-        return await store.labelable_pairs(route, limit)
-    finally:
-        await store.close()
-
-
-async def _import(labels: list[HumanLabel], dsn: str) -> int:
-    store = PostgresEvidenceStore(dsn)
-    await store.start()
-    try:
-        return await store.import_labels(labels)
+        return await work(store)
     finally:
         await store.close()
 
@@ -266,10 +267,8 @@ def main(argv: list[str] | None = None) -> None:
         exp.add_argument("--out", required=True)
         exp.add_argument("--limit", type=int, default=300)
         a = exp.parse_args(argv[1:])
-        dsn = Settings().database_url
-        if not dsn:
-            raise SystemExit("RELAY_DATABASE_URL is not set")
-        pairs = asyncio.run(_export(a.route, a.limit, dsn))
+        dsn = _dsn()
+        pairs = asyncio.run(_with_store(dsn, lambda s: s.labelable_pairs(a.route, a.limit)))
         write_jsonl(pairs, Path(a.out))
         print(f"exported {len(pairs)} unlabeled pairs of route {a.route!r} to {a.out}")
         if not pairs:
@@ -279,11 +278,9 @@ def main(argv: list[str] | None = None) -> None:
         imp = argparse.ArgumentParser(prog="python -m relay.evidence.label import")
         imp.add_argument("--labels", required=True)
         a = imp.parse_args(argv[1:])
-        dsn = Settings().database_url
-        if not dsn:
-            raise SystemExit("RELAY_DATABASE_URL is not set")
-        rows = [json.loads(line) for line in Path(a.labels).read_text("utf-8").splitlines() if line]
-        print(f"imported {asyncio.run(_import(human_labels(rows), dsn))} labels")
+        dsn = _dsn()
+        labels = human_labels(read_labels(Path(a.labels)))
+        print(f"imported {asyncio.run(_with_store(dsn, lambda s: s.import_labels(labels)))} labels")
         return
     parser = argparse.ArgumentParser(prog="python -m relay.evidence.label", description=__doc__)
     parser.add_argument("--pairs", required=True)

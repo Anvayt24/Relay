@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from relay.routing.features import FEATURE_SPEC_VERSION, N_SCALARS, feature_vector
+from relay.routing.features import FEATURE_SPEC_VERSION, N_SCALARS, feature_vector, standardize
 
 FORMAT_VERSION = 1
 
@@ -45,17 +45,16 @@ class RouterArtifact:
     trained_on: dict[str, Any] = field(default_factory=dict)
     metrics: dict[str, Any] = field(default_factory=dict)
 
-    def logit(self, embedding: np.ndarray, scalars: np.ndarray) -> float:
-        x = feature_vector(embedding, scalars, self.scaler_mean, self.scaler_scale)
-        return float(x @ self.weights + self.bias)
-
     def score(self, embedding: np.ndarray, scalars: np.ndarray) -> float:
         """P(the cheap model's answer is win-or-tie vs the strong model's), in [0, 1]."""
-        return sigmoid(self.logit(embedding, scalars))
+        x = feature_vector(embedding, scalars, self.scaler_mean, self.scaler_scale)
+        return sigmoid(float(x @ self.weights + self.bias))
 
     def score_matrix(self, embeddings: np.ndarray, scalars: np.ndarray) -> np.ndarray:
         """Vectorized ``score`` for evaluation: rows are prompts."""
-        std = (scalars - self.scaler_mean) / self.scaler_scale
+        std = standardize(scalars, self.scaler_mean, self.scaler_scale)
+        # Not ``sigmoid``: the vectorized form clips instead of splitting on sign, and the eval
+        # numbers were produced with exactly this arithmetic.
         z = np.concatenate([embeddings, std], axis=1) @ self.weights + self.bias
         probabilities: np.ndarray = 1.0 / (1.0 + np.exp(-np.clip(z, -60, 60)))
         return probabilities

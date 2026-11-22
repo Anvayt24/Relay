@@ -97,10 +97,12 @@ class TrainedRouter:
         started = time.perf_counter()
         artifact = self._artifacts.get(ctx.route)
         cheap_name, strong_name = route.aliases["relay/cheap"], route.aliases["relay/strong"]
+        if artifact is None:
+            return self._fallback(ctx, decision, strong_name, artifact, "no_artifact", shadow)
         score, cause = await self._score(req, ctx, artifact, spec.embed_timeout_s, shadow)
 
-        if score is None or artifact is None:
-            cause = cause or "no_artifact"
+        if score is None:
+            assert cause is not None  # _score always says why it could not score
             return self._fallback(ctx, decision, strong_name, artifact, cause, shadow)
         if cheap_name not in self._available:
             return self._fallback(ctx, decision, strong_name, artifact, "cheap_unavailable", shadow)
@@ -124,12 +126,10 @@ class TrainedRouter:
         self,
         req: ChatRequest,
         ctx: "RequestContext",
-        artifact: RouterArtifact | None,
+        artifact: RouterArtifact,
         timeout_s: float,
         shadow: bool,
     ) -> tuple[float | None, str | None]:
-        if artifact is None:
-            return None, "no_artifact"
         embedder = self._embedder
         if embedder is None and ctx.embedding is None:
             return None, "embedder_off"

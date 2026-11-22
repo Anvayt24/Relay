@@ -44,6 +44,7 @@ from relay.config.models import ModelSpec
 from relay.config.pricing import NANO_PER_USD, list_cost_nano
 from relay.config.schema import EvidenceSpec, RouteSpec
 from relay.evidence.board import CardBoard, fallback_comparison
+from relay.evidence.cards import comparison_kind
 from relay.evidence.cohorts import cohort_of
 from relay.evidence.judge import Judge
 from relay.evidence.pairs import EvalPair, prompt_hash
@@ -82,10 +83,6 @@ class Job:
     candidate: str  # Relay model name
     reference: str
     call: str  # which of the two is the extra (shadow) call; the other already answered
-
-
-def comparison_kind(comparison: str) -> str:
-    return comparison.split(":", 1)[0]
 
 
 def band_comparison(lo: float, hi: float) -> str:

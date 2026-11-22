@@ -435,9 +435,14 @@ def _decided_card(
     )
 
 
+def comparison_kind(comparison: str) -> str:
+    """``canary:v2`` -> ``canary``, ``band:0.5-0.7`` -> ``band``; a bare kind is itself."""
+    return comparison.split(":", 1)[0]
+
+
 def action(comparison: str, state: State, promotable: bool) -> str:
     """The card's action, as a pure function of the comparison kind and the state."""
-    kind = comparison.split(":", 1)[0]
+    kind = comparison_kind(comparison)
     if state in ("uncalibrated", "stale"):
         return "none"
     if state == "undecided":
@@ -450,9 +455,7 @@ def action(comparison: str, state: State, promotable: bool) -> str:
             "cheap_vs_strong": "raise_threshold",
         }.get(kind, "alert")
     # safe
-    if kind == "band":
-        return "promote" if promotable else "collect_more"
-    if kind == "canary":
+    if kind in ("band", "canary"):
         return "promote" if promotable else "collect_more"
     return "none"
 

@@ -42,8 +42,7 @@ class Cohort:
     lang: str
     length: str
     code: bool
-    tools: bool = False
-    tag: str | None = None  # the client's X-Relay-Cohort, if any
+    tools: bool = False  # always false until tool pass-through; kept so the key won't change
 
     @property
     def key(self) -> str:
@@ -68,7 +67,7 @@ def script_of(text: str) -> str:
     return max(counts, key=lambda s: counts[s]) if counts else "other"
 
 
-def cohort_of(prompt: str, *, tools: bool = False, tag: str | None = None) -> Cohort:
+def cohort_of(prompt: str) -> Cohort:
     n = len(prompt)
     length = "short" if n <= SHORT_MAX_CHARS else "medium" if n <= MEDIUM_MAX_CHARS else "long"
-    return Cohort(lang=script_of(prompt), length=length, code="```" in prompt, tools=tools, tag=tag)
+    return Cohort(lang=script_of(prompt), length=length, code="```" in prompt)
