@@ -109,8 +109,8 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
         degraded=ctx.degraded,
         policy_version=ctx.policy_version,
         cache_status=ctx.cache.status if ctx.cache else None,
-        router_reason=ctx.router_reason,
-        router_score=ctx.router_score,
+        router_reason=decision.reason if decision else None,
+        router_score=decision.score if decision else None,
         canary_arm=ctx.canary_arm,
         shadow_policy_version=ctx.shadow_policy_version,
         shadow_tier=ctx.shadow_tier,
@@ -164,8 +164,6 @@ class RouteStage:
         # router's version would never reach the log row or a cache entry.
         if ctx.applied.version is None:
             ctx.policy_version = decision.policy_version
-        ctx.router_reason = decision.reason
-        ctx.router_score = decision.score
         shadow = ctx.policy.shadow() if ctx.policy is not None else None
         if shadow is not None:
             # Off the request's path: it runs while the provider answers and is collected in

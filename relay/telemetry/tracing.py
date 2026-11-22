@@ -194,11 +194,12 @@ def annotate(ctx: "RequestContext", outcome: "Outcome") -> None:
         attrs["relay.cache.status"] = ctx.cache.status
         if ctx.cache.layer:
             attrs["relay.cache.layer"] = ctx.cache.layer
-    if ctx.router_reason is not None:
-        attrs["relay.router.reason"] = ctx.router_reason
-    if ctx.router_score is not None:
-        attrs["relay.router.score"] = ctx.router_score
     if ctx.decision is not None:
+        # Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
+        # and, when the trained router decided, its score.
+        attrs["relay.router.reason"] = ctx.decision.reason
+        if ctx.decision.score is not None:
+            attrs["relay.router.score"] = ctx.decision.score
         attrs["relay.tier"] = ctx.decision.tier
     served = ctx.served_by
     if served is not None:

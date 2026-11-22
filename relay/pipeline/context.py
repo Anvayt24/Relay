@@ -86,6 +86,9 @@ class RequestContext:
     # candidate for a request in the canary arm (the YAML policy when no bundle is active).
     # Every stage reads route policy from it, so a swap mid-request can't mix two policies.
     applied: "BuiltPolicy"
+    # The router's choice, with why it was made (alias | explicit | router |
+    # router_fallback:<cause>) and, when the trained router decided, its score. Logged for every
+    # request; None when no decision was made (e.g. a cache hit).
     decision: RouteDecision | None = None
     # The dispatcher's candidate plan, made once: the reservation is sized for it and the
     # dispatcher walks it, so both see the same edge states even if a card changes in between.
@@ -128,11 +131,6 @@ class RequestContext:
     # Why that embedding could not be computed (embed_timeout | embed_busy | embed_error), so
     # the router doesn't wait a second time for an embedder that just failed.
     embed_failure: str | None = None
-    # Why this model was chosen (alias | explicit | router | router_fallback:<cause>)
-    # and, when the trained router decided, its score. Logged for every request: a later phase
-    # samples the score band that would move under a lower threshold.
-    router_reason: str | None = None
-    router_score: float | None = None
     # What the model said, collected as it is produced, so the cache can store it when the
     # request ends: the JSON reply, or the chunks a stream forwarded.
     reply_parts: list[str] = field(default_factory=list)

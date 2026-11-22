@@ -121,9 +121,10 @@ def jobs_for(ctx: RequestContext, route: RouteSpec, spec: EvidenceSpec) -> list[
         and route.router is not None
         and cheap
         and served.model == strong
-        and ctx.router_reason == "router"
-        and ctx.router_score is not None
-        and spec.band_lo <= ctx.router_score < route.router.threshold
+        and ctx.decision is not None
+        and ctx.decision.reason == "router"
+        and ctx.decision.score is not None
+        and spec.band_lo <= ctx.decision.score < route.router.threshold
     ):
         jobs.append(
             Job(
