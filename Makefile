@@ -11,6 +11,7 @@ COMPOSE := docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.
 .DEFAULT_GOAL := help
 .PHONY: help install fmt lint typecheck test cov-gate test-integration migrate sim check up down logs smoke web \
         chaos chaos-smoke load eval eval-judge eval-router eval-cache eval-evidence reproduce \
+        reproduce-bench \
         train-router
 
 help:
@@ -19,6 +20,7 @@ help:
 	@echo   fmt          auto-format and auto-fix lint issues
 	@echo   check        lint + typecheck + test (what CI runs)
 	@echo   lint / typecheck / test
+	@echo   cov-gate     fail if line coverage of the guarantee packages is under 80 percent, after test
 	@echo   test-integration   tests that need Postgres (run make up first)
 	@echo   migrate      apply SQL migrations to RELAY_DATABASE_URL
 	@echo   sim          run the provider simulator on localhost:8100 (realistic preset)
@@ -26,6 +28,7 @@ help:
 	@echo   smoke        end-to-end check of the self-hosted stack (Docker, no provider keys)
 	@echo   web          build and test the demo page (needs Node)
 	@echo   reproduce    regenerate every cited number and fail if any changed
+	@echo   reproduce-bench   re-run the chaos and load timing runs, report mean and spread, slow
 	@echo   chaos-smoke  compressed fault scenarios asserting documented behavior (localhost)
 	@echo   chaos        the full chaos suite, 5 runs per scenario and client -> bench/results/chaos
 	@echo   load         k6 load test, 1 vs 2 replicas, in Docker -> bench/results/load

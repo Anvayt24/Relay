@@ -90,8 +90,6 @@ services:
       POSTGRES_DB: relay
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Scripts in this folder run once, when the data volume is first created.
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
       interval: 5s
