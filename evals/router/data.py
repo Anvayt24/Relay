@@ -16,7 +16,6 @@ known (in the simulation, the truth plays the human; in real data, human labels)
 labeled set PPI needs, kept disjoint from the judge-only prompts.
 """
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,21 +23,11 @@ from typing import Any
 
 import numpy as np
 
+from relay.evidence.pairs import file_sha256
 from relay.routing.features import scalar_features
 
 HERE = Path(__file__).parent
 SPLITS = ("train", "val", "test")
-
-
-def write_text(path: Path, text: str) -> None:
-    # newline="\n": Path.write_text on Windows emits CRLF, git stores LF, and a sha256 taken on
-    # Windows would then differ on Linux CI (the cache eval hit exactly this).
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-
-
-def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -99,8 +88,12 @@ def write_dataset(
 ) -> None:
     folder = HERE / name
     folder.mkdir(parents=True, exist_ok=True)
-    write_text(
-        folder / "prompts.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    # newline="\n": Path.write_text on Windows emits CRLF, git stores LF, and a sha256 taken on
+    # Windows would then differ on Linux CI (the cache eval hit exactly this).
+    (folder / "prompts.jsonl").write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+        encoding="utf-8",
+        newline="\n",
     )
     np.save(folder / "embeddings.npy", np.asarray(embeddings, dtype=np.float32))
     manifest = {
@@ -108,4 +101,6 @@ def write_dataset(
         "rows": len(rows),
         "sha256": {f: file_sha256(folder / f) for f in ("prompts.jsonl", "embeddings.npy")},
     }
-    write_text(folder / "manifest.json", json.dumps(manifest, indent=2))
+    (folder / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8", newline="\n"
+    )

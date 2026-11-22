@@ -31,7 +31,7 @@ def test_summary_counts_only_successes_for_latency() -> None:
     results = [
         Result(True, 1.0),
         Result(True, 3.0, degraded=True),
-        Result(False, 30.0, status=503),
+        Result(False, 30.0),
     ]
     s = summarize(results)
     assert s["success_rate"] == pytest.approx(2 / 3)

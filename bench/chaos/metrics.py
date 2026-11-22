@@ -25,11 +25,9 @@ from dataclasses import dataclass
 class Result:
     ok: bool
     latency_s: float
-    status: int = 0
     degraded: bool = False
     # A stream that ended with neither [DONE] nor an error event: a silently cut answer.
     silent_truncation: bool = False
-    stream: bool = False
     # Which upstream answered and its ground-truth index, for correctness lookups.
     served_by: str | None = None
     index: int | None = None

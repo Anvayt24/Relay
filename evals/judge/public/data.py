@@ -24,7 +24,6 @@ The output files are frozen and hashed, like the other eval data: a re-run of th
 must reproduce them byte for byte (fixed seeds, fixed timestamps).
 """
 
-import hashlib
 import json
 import random
 import time
@@ -37,7 +36,13 @@ from typing import Any
 import httpx
 
 from relay.evidence.cohorts import cohort_of
-from relay.evidence.pairs import EvalPair, offline_comparison, prompt_hash, write_jsonl
+from relay.evidence.pairs import (
+    EvalPair,
+    file_sha256,
+    offline_comparison,
+    prompt_hash,
+    write_jsonl,
+)
 
 HERE = Path(__file__).parent
 
@@ -98,6 +103,36 @@ def _answer(vote: Mapping[str, Any], model: str) -> str:
     return str(vote[side][1]["content"])
 
 
+def _unjudged_pair(
+    *,
+    pair_id: str,
+    prompt: str,
+    candidate: str,
+    reference: str,
+    candidate_text: str,
+    reference_text: str,
+    source: str,
+) -> EvalPair:
+    return EvalPair(
+        pair_id=pair_id,
+        prompt_hash=prompt_hash(prompt),
+        cohort=cohort_of(prompt).key,
+        comparison=offline_comparison(candidate, reference),
+        candidate_model=candidate,
+        reference_model=reference,
+        judge_label=None,
+        judge_model="",  # not judged yet: run.py fills these in
+        judge_prompt_version="",
+        position_swapped=False,
+        text_retained=True,
+        ts=TS,
+        source=source,
+        prompt_text=prompt,
+        candidate_text=candidate_text,
+        reference_text=reference_text,
+    )
+
+
 def mtbench_set(rows: Iterable[Mapping[str, Any]], *, n: int, seed: int) -> PublicSet:
     # Group the first-turn votes by pair (question, candidate, reference), in data order.
     groups: dict[tuple[int, str, str], list[Mapping[str, Any]]] = {}
@@ -132,23 +167,14 @@ def mtbench_set(rows: Iterable[Mapping[str, Any]], *, n: int, seed: int) -> Publ
         prompt = str(first["conversation_a"][0]["content"])
         pair_id = f"mtbench-{qid}-{candidate}-vs-{reference}"
         pairs.append(
-            EvalPair(
+            _unjudged_pair(
                 pair_id=pair_id,
-                prompt_hash=prompt_hash(prompt),
-                cohort=cohort_of(prompt).key,
-                comparison=offline_comparison(candidate, reference),
-                candidate_model=candidate,
-                reference_model=reference,
-                judge_label=None,
-                judge_model="",  # not judged yet: run.py fills these in
-                judge_prompt_version="",
-                position_swapped=False,
-                text_retained=True,
-                ts=TS,
-                source="mtbench",
-                prompt_text=prompt,
+                prompt=prompt,
+                candidate=candidate,
+                reference=reference,
                 candidate_text=_answer(first, candidate),
                 reference_text=_answer(first, reference),
+                source="mtbench",
             )
         )
         for i, v in enumerate(votes):
@@ -177,23 +203,14 @@ def llmbar_set(
             pair_id = f"llmbar-{slug}-{index:03d}"
             candidate, reference = f"llmbar/output-{side}", f"llmbar/output-{3 - side}"
             pairs.append(
-                EvalPair(
+                _unjudged_pair(
                     pair_id=pair_id,
-                    prompt_hash=prompt_hash(prompt),
-                    cohort=cohort_of(prompt).key,
-                    comparison=offline_comparison(candidate, reference),
-                    candidate_model=candidate,
-                    reference_model=reference,
-                    judge_label=None,
-                    judge_model="",
-                    judge_prompt_version="",
-                    position_swapped=False,
-                    text_retained=True,
-                    ts=TS,
-                    source=source,
-                    prompt_text=prompt,
+                    prompt=prompt,
+                    candidate=candidate,
+                    reference=reference,
                     candidate_text=str(item[f"output_{side}"]),
                     reference_text=str(item[f"output_{3 - side}"]),
+                    source=source,
                 )
             )
             # LLMBar's label names the objectively better output; there are no ties.
@@ -280,8 +297,7 @@ def main() -> None:
         f"votes); {sum(len(v) for v in llmbar.values())} LLMBar items -> {len(lb_pairs)} pairs"
     )
     for name in ("pairs.jsonl", "labels.jsonl", "extra_votes.jsonl"):
-        digest = hashlib.sha256((HERE / name).read_bytes()).hexdigest()
-        print(f"sha256 {digest}  {name}")
+        print(f"sha256 {file_sha256(HERE / name)}  {name}")
 
 
 if __name__ == "__main__":

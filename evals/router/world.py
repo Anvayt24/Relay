@@ -341,10 +341,6 @@ SITUATIONS = [
 ]
 
 
-def _digits(n: int) -> int:
-    return len(str(abs(n)))
-
-
 def generate(seed: int = 0) -> list[Item]:
     """About 3,500 prompts across 8 families. Deterministic for a seed."""
     rng = random.Random(seed)

@@ -65,12 +65,6 @@ def gate() -> dict[str, float]:
     return {k: round(float(v), 4) for k, v in out.items()}
 
 
-def write_text(path: Path, text: str) -> None:
-    # LF on every platform: the committed files are compared byte for byte in CI (Linux).
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-
-
 def report(m: dict[str, Any]) -> str:
     cov, det, sen, m8, can = m["coverage"], m["detection"], m["sensitivity"], m["cost"], m["canary"]
     lines = [
@@ -277,8 +271,9 @@ def main() -> int:
         print(f"evidence eval OK: {new}")
         return 0
     metrics = {**full(), "gate": gate()}
-    write_text(path, json.dumps(metrics, indent=2) + "\n")
-    write_text(HERE / "report.md", report(metrics))
+    # LF on every platform: the committed files are compared byte for byte in CI (Linux).
+    path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (HERE / "report.md").write_text(report(metrics), encoding="utf-8", newline="\n")
     plotted = plot(metrics, HERE / "evidence.png")
     print(json.dumps(metrics["gate"], indent=2))
     print("wrote metrics.json, report.md" + (", evidence.png" if plotted else ""))

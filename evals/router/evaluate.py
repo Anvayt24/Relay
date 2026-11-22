@@ -73,7 +73,6 @@ def split_view(ds: Dataset, scores: np.ndarray, split: str) -> dict[str, np.ndar
         "y_true": ds.y_true[m],
         "gold": gold,
         "family": ds.families[m],
-        "w": ds.col("w")[m],
     }
 
 
@@ -118,22 +117,21 @@ def lower_bound_one_sided(view: dict[str, np.ndarray], cheap: np.ndarray) -> tup
 def select_threshold(ds: Dataset, scores: np.ndarray) -> dict[str, Any]:
     """The threshold, chosen from the validation split alone (see module docstring)."""
     val = split_view(ds, scores, "val")
-    chosen: float | None = None
-    rows = []
+    # (threshold, cheap share, lower bound, basis) of the lowest threshold that clears the floor
+    chosen: tuple[float, float, float, str] | None = None
     for t in THRESHOLDS[::-1]:  # safest (highest) first
         cheap = val["scores"] >= t
         lower, how = lower_bound_one_sided(val, cheap)
-        rows.append((float(t), float(cheap.mean()), lower, how))
         if lower >= M4_FLOOR:
-            chosen = float(t)
+            chosen = (float(t), float(cheap.mean()), lower, how)
         else:
             break
     out: dict[str, Any] = {
-        "threshold": 1.0 if chosen is None else chosen,
+        "threshold": 1.0 if chosen is None else chosen[0],
         "met": chosen is not None,
     }
     if chosen is not None:
-        t, share, lower, how = next(r for r in rows if r[0] == chosen)
+        _, share, lower, how = chosen
         out["validation"] = {"cheap_share": share, "quality_lower_95": lower, "basis": how}
     return out
 
@@ -154,7 +152,7 @@ WORLD_MODELS = {
 }
 
 
-def cost_saved_fraction(cheap_share: float, world: str = "sim") -> float | None:
+def cost_saved_fraction(cheap_share: float, world: str) -> float:
     """List-price saving vs always-strong at an illustrative request size, using the route's
     cheap and strong models from the shipped config."""
     config = load_config(None)
@@ -169,10 +167,10 @@ def cost_saved_fraction(cheap_share: float, world: str = "sim") -> float | None:
 
 
 # ---------------------------------------------------------------- the evaluation
-def evaluate_world(ds: Dataset, artifact: RouterArtifact, threshold: float | None = None) -> dict:
+def evaluate_world(ds: Dataset, artifact: RouterArtifact) -> dict:
     scores = artifact.score_matrix(ds.embeddings, ds.scalars)
     selection = select_threshold(ds, scores)
-    t_star = selection["threshold"] if threshold is None else threshold
+    t_star = selection["threshold"]
     test = split_view(ds, scores, "test")
     labels, basis = reference_labels(test)
     n = len(labels)
@@ -368,12 +366,11 @@ def write_report(metrics: dict[str, Any], path: Path) -> None:
             f"{h['ppi_quality_lower_95']:.4f}; the {p['n_labeled']} gold labels are worth about "
             f"{p['ess_gain']:.1f}x as many human labels (lambda {p['lam']:.2f})."
         )
-    if h.get("cost_saved_fraction_illustrative") is not None:
-        lines.append(
-            f"- List-price cost saved vs always-strong: {h['cost_saved_fraction_illustrative']:.1%} "  # noqa: E501
-            f"(illustrative: {ILLUSTRATIVE_TOKENS[0]} prompt + {ILLUSTRATIVE_TOKENS[1]} "
-            "completion tokens per request, list prices from relay.yaml)."
-        )
+    lines.append(
+        f"- List-price cost saved vs always-strong: {h['cost_saved_fraction_illustrative']:.1%} "
+        f"(illustrative: {ILLUSTRATIVE_TOKENS[0]} prompt + {ILLUSTRATIVE_TOKENS[1]} "
+        "completion tokens per request, list prices from relay.yaml)."
+    )
     lines += [
         "",
         "## Baselines (test)",
@@ -470,7 +467,7 @@ def main() -> int:
             return 1
         print(f"router eval ({args.world}) OK: {new}")
         return 0
-    data_mod.write_text(metrics_path, json.dumps(metrics, indent=2))
+    metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8", newline="\n")
     write_report(metrics, folder / "report.md")
     plotted = plot(metrics, folder / "curve.png")
     print(json.dumps(headline_numbers(metrics), indent=2))
