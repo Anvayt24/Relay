@@ -44,6 +44,7 @@ from relay.cache.keys import fits
 
 logger = logging.getLogger(__name__)
 
+COMMAND_TIMEOUT_S = 0.5
 SWEEP_INTERVAL_S = 300.0
 SWEEP_BATCH = 1000
 
@@ -77,6 +78,28 @@ class SemanticStore(Protocol):
 
     async def start(self) -> None: ...
     async def close(self) -> None: ...
+
+
+def _accept(
+    similarity: float,
+    load_reply: Callable[[], CachedReply],
+    stored_guard: str,
+    *,
+    threshold: float,
+    max_tokens: int,
+    guard: str | None,
+) -> SemanticHit | None:
+    """The accept rule both stores share, in this order: similarity >= threshold, then the
+    stored completion fits ``max_tokens``, then the lexical guard. The reply is loaded only
+    once the threshold passes (pgvector stores it serialized)."""
+    if similarity < threshold:
+        return None
+    reply = load_reply()
+    if not fits(reply.completion_tokens, max_tokens):
+        return None
+    if guard is not None and guard != stored_guard:
+        return None  # lexical guard: the numbers or names differ
+    return SemanticHit(reply, float(similarity))
 
 
 @dataclass
@@ -121,14 +144,17 @@ class MemorySemanticStore:
             sim = float(query @ entry.embedding)
             if best is None or sim > best[0]:
                 best = (sim, entry)
-        if best is None or best[0] < threshold:
+        if best is None:
             return None
         sim, entry = best
-        if not fits(entry.reply.completion_tokens, max_tokens):
-            return None
-        if guard is not None and guard != entry.guard:
-            return None  # lexical guard: the numbers or names differ
-        return SemanticHit(entry.reply, sim)
+        return _accept(
+            sim,
+            lambda: entry.reply,
+            entry.guard,
+            threshold=threshold,
+            max_tokens=max_tokens,
+            guard=guard,
+        )
 
     async def insert(
         self,
@@ -170,16 +196,8 @@ class MemorySemanticStore:
 class PgVectorStore:
     """Postgres + pgvector. Cosine distance is ``<=>``; similarity = ``1 - distance``."""
 
-    def __init__(
-        self,
-        dsn: str,
-        *,
-        command_timeout_s: float = 0.5,
-        sweep_interval_s: float = SWEEP_INTERVAL_S,
-    ) -> None:
+    def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        self._timeout = command_timeout_s
-        self._sweep_interval_s = sweep_interval_s
         self._pool: asyncpg.Pool | None = None
         self._sweeper: asyncio.Task[None] | None = None
 
@@ -190,7 +208,7 @@ class PgVectorStore:
             self._dsn,
             min_size=0,
             max_size=4,
-            command_timeout=self._timeout,
+            command_timeout=COMMAND_TIMEOUT_S,
             init=_init_connection,
         )
         self._sweeper = asyncio.create_task(self._sweep_forever(), name="relay-cache-sweep")
@@ -223,7 +241,7 @@ class PgVectorStore:
 
     async def _sweep_forever(self) -> None:
         while True:
-            await asyncio.sleep(self._sweep_interval_s)
+            await asyncio.sleep(SWEEP_INTERVAL_S)
             try:
                 await self.sweep()
             except Exception as e:  # Postgres down: the next sweep tries again
@@ -250,14 +268,16 @@ class PgVectorStore:
                 )
         except (asyncpg.PostgresError, OSError, TimeoutError) as e:
             raise CacheUnavailable(str(e)) from e
-        if row is None or row["similarity"] < threshold:
+        if row is None:
             return None
-        reply = CachedReply.loads(row["reply"])
-        if not fits(reply.completion_tokens, max_tokens):
-            return None
-        if guard is not None and guard != row["guard"]:
-            return None
-        return SemanticHit(reply, float(row["similarity"]))
+        return _accept(
+            row["similarity"],
+            lambda: CachedReply.loads(row["reply"]),
+            row["guard"],
+            threshold=threshold,
+            max_tokens=max_tokens,
+            guard=guard,
+        )
 
     async def insert(
         self,

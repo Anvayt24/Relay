@@ -61,10 +61,8 @@ class HashEmbedder:
     give similar vectors, which is all the cache tests need."""
 
     name = "hash-embedder"
+    dimensions = DIMENSIONS
     ready = True
-
-    def __init__(self, dimensions: int = DIMENSIONS) -> None:
-        self.dimensions = dimensions
 
     async def embed(self, text: str) -> list[float]:
         words = text.lower().split()
