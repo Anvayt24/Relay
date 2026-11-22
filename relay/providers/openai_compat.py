@@ -22,7 +22,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable
 from typing import Any, Literal
 
 import httpx
@@ -109,7 +109,7 @@ class OpenAICompatAdapter:
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=False) from exc
         if response.status_code >= 400:
-            raise self._error(response.status_code, response.content, response.headers)
+            raise upstream_error(self.name, response, self._limit_scope, classify)
         try:
             return self._to_response(response.json(), req)
         except MALFORMED as exc:
@@ -145,7 +145,7 @@ class OpenAICompatAdapter:
             ) as response:
                 if response.status_code >= 400:
                     await response.aread()
-                    raise self._error(response.status_code, response.content, response.headers)
+                    raise upstream_error(self.name, response, self._limit_scope, classify)
                 async for event in sse_events(response.aiter_lines()):
                     if event.data == "[DONE]":
                         break
@@ -180,12 +180,6 @@ class OpenAICompatAdapter:
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         return body
-
-    def _error(self, status: int, body: bytes, headers: Mapping[str, str]) -> ProviderError:
-        error, blob = error_payload(body)
-        return upstream_error(
-            self.name, status, error, classify(status, blob), headers, self._limit_scope
-        )
 
     def _error_from_event(self, payload: dict[str, Any], content_seen: bool) -> ProviderError:
         # An error *inside* a 200 stream (OpenRouter). After content, it can only be

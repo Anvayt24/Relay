@@ -10,7 +10,7 @@ translation.
 import email.utils
 import json
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,17 +61,21 @@ def stream_timeout(*, connect_timeout_s: float, idle_timeout_s: float) -> httpx.
 
 def upstream_error(
     provider: str,
-    status: int,
-    error: Mapping[str, Any],
-    error_class: ErrorClass,
-    headers: Mapping[str, str],
+    response: httpx.Response,
     limit_scope: LimitScope,
+    classify: Callable[[int, str], ErrorClass],
 ) -> ProviderError:
-    """The ``ProviderError`` for an HTTP error response, once classified. Written once for
-    every adapter (found in review: Anthropic's copy sent no signal for a quota error)."""
+    """The ``ProviderError`` for an HTTP error response (its body already read), classified by
+    the adapter's own ``classify``. Written once for every adapter (found in review:
+    Anthropic's copy sent no signal for a quota error)."""
+    status = response.status_code
+    error, blob = error_payload(response.content)
+    error_class = classify(status, blob)
     signal = None
     if error_class in _LIMITS:
-        signal = ProviderSignal(retry_after_s=retry_after(headers), limit_scope=limit_scope)
+        signal = ProviderSignal(
+            retry_after_s=retry_after(response.headers), limit_scope=limit_scope
+        )
     message = f"{provider} {status}: {str(error.get('message', ''))[:300]}"
     return ProviderError(error_class, message, signal)
 

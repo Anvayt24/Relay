@@ -10,6 +10,8 @@ someone else.
 import ipaddress
 from collections.abc import Sequence
 
+from fastapi import Request
+
 type Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 UNKNOWN = "unknown"  # no usable address: all such requests share one limit, none are exempt
@@ -58,3 +60,12 @@ def resolve_client_ip(
         if not _trusted(address, trusted):
             return str(address)
     return str(peer_address)
+
+
+def request_client_ip(request: Request) -> str:
+    """The client address of an HTTP request, using the app's trusted proxy list."""
+    return resolve_client_ip(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+        request.app.state.trusted_proxies,
+    )

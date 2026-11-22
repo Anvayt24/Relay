@@ -119,8 +119,6 @@ class ChaosPanel:
                 self._spawn(self._one_relay)
                 self._spawn(self._one_naive)
                 await asyncio.sleep(self._period)
-        except asyncio.CancelledError:
-            raise
         finally:
             for task in list(self._inflight):
                 task.cancel()

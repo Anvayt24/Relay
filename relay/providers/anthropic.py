@@ -101,7 +101,7 @@ class AnthropicAdapter:
         except httpx.HTTPError as exc:
             raise transport_error(exc, content_started=False) from exc
         if response.status_code >= 400:
-            raise self._error(response.status_code, response.content, response.headers)
+            raise upstream_error(self.name, response, self._limit_scope, classify)
         try:
             data = response.json()
             text = "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
@@ -143,7 +143,7 @@ class AnthropicAdapter:
             ) as response:
                 if response.status_code >= 400:
                     await response.aread()
-                    raise self._error(response.status_code, response.content, response.headers)
+                    raise upstream_error(self.name, response, self._limit_scope, classify)
                 async for event in sse_events(response.aiter_lines()):
                     try:
                         data = json.loads(event.data)
@@ -217,12 +217,6 @@ class AnthropicAdapter:
             # Sonnet 5.5 refuses {"type": "disabled"}; "between_tools" is how it is turned off.
             body["thinking"] = {"type": "between_tools"}
         return body
-
-    def _error(self, status: int, body: bytes, headers: Mapping[str, str]) -> ProviderError:
-        error, blob = error_payload(body)
-        return upstream_error(
-            self.name, status, error, classify(status, blob), headers, self._limit_scope
-        )
 
 
 def classify(status: int, blob: str) -> ErrorClass:

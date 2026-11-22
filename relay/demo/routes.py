@@ -21,7 +21,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from relay.api.client_ip import resolve_client_ip
+from relay.api.client_ip import request_client_ip
 from relay.api.routes import get_pipeline, get_settings, serve_chat
 from relay.config.tenants import Tenant
 from relay.pipeline.runner import Pipeline
@@ -108,11 +108,7 @@ async def chaos(action: ChaosAction, request: Request) -> dict[str, Any]:
     if panel is None:
         raise HTTPException(status_code=404, detail="Not Found")
     # Visitors can break the simulator, so each address gets a handful of actions a minute.
-    ip = resolve_client_ip(
-        request.client.host if request.client else None,
-        request.headers.get("x-forwarded-for"),
-        request.app.state.trusted_proxies,
-    )
+    ip = request_client_ip(request)
     wait = await request.app.state.capacity_store.take(
         f"demochaos:{ip}",
         capacity=CHAOS_ACTIONS_PER_MINUTE,

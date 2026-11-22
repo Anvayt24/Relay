@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from prometheus_client import Counter
 from pydantic import BaseModel
 
-from relay.api.client_ip import resolve_client_ip
+from relay.api.client_ip import request_client_ip
 from relay.api.decision import DECISION_HEADERS, decision_fields
 from relay.api.streaming import RelayStreamingResponse
 from relay.config.models import ModelSpec
@@ -145,12 +145,7 @@ async def serve_chat(
         applied=applied,
         canary_arm=arm,
         span=getattr(request.state, "span", None),
-        client_ip=client_ip
-        or resolve_client_ip(
-            request.client.host if request.client else None,
-            request.headers.get("x-forwarded-for"),
-            request.app.state.trusted_proxies,
-        ),
+        client_ip=client_ip or request_client_ip(request),
     )
 
     # Any failure up to here, including a stream that broke before its first content chunk,

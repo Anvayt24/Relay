@@ -14,7 +14,8 @@ import sys
 
 import asyncpg
 
-from relay.auth.keys import display_prefix, generate_key, hash_key
+from relay.auth.bootstrap import insert_key
+from relay.auth.keys import generate_key
 from relay.config.loader import load_config
 from relay.settings import Settings
 
@@ -34,12 +35,7 @@ async def _run(args: argparse.Namespace, settings: Settings) -> int:
                 )
                 return 2
             key = generate_key()
-            await conn.execute(
-                "INSERT INTO api_keys (key_hash, key_prefix, tenant) VALUES ($1, $2, $3)",
-                hash_key(key, settings.key_pepper.get_secret_value()),
-                display_prefix(key),
-                args.tenant,
-            )
+            await insert_key(conn, key, settings.key_pepper.get_secret_value(), args.tenant)
             print(key)
             print(
                 f"created for tenant {args.tenant!r}; store it now, it is not shown again",
