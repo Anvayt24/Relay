@@ -1,4 +1,4 @@
-"""Observability (PRD FR-8). Async log writer in Phase 2; OpenTelemetry tracing in Phase 14.
+"""Observability: an async request-log writer, structured logs, and OpenTelemetry tracing.
 
 Rule: logging is never on the hot path. Request rows go to a bounded in-memory queue and a
 background task batches them to Postgres. If Postgres is slow or down, the oldest rows are

@@ -18,7 +18,7 @@ import asyncio
 import json
 import random
 from collections.abc import AsyncGenerator, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,6 +102,16 @@ class PatientAdapter:
         await self._inner.aclose()
 
 
+def _request(prompt: str, model: str, max_tokens: int) -> ChatRequest:
+    return ChatRequest.model_validate(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+        }
+    )
+
+
 async def make_pair(
     *,
     index: int,
@@ -117,17 +127,10 @@ async def make_pair(
     max_tokens: int,
     source: str,
 ) -> EvalPair:
-    def req(model: str) -> ChatRequest:
-        return ChatRequest.model_validate(
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-            }
-        )
-
-    cand = (await candidate.complete(req(candidate_upstream))).choices[0].message.content or ""
-    ref = (await reference.complete(req(reference_upstream))).choices[0].message.content or ""
+    cand_req = _request(prompt, candidate_upstream, max_tokens)
+    ref_req = _request(prompt, reference_upstream, max_tokens)
+    cand = (await candidate.complete(cand_req)).choices[0].message.content or ""
+    ref = (await reference.complete(ref_req)).choices[0].message.content or ""
     try:
         result = await judge.judge(request=prompt, candidate=cand, reference=ref)
     except QuotaReached:
@@ -199,22 +202,14 @@ async def repair_pair(
     cand_empty, ref_empty, rejudge = needs_repair(p)
     if not rejudge:
         return p
-
-    def req(model: str) -> ChatRequest:
-        return ChatRequest.model_validate(
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-            }
-        )
-
     prompt = p.prompt_text or ""
     cand, ref = p.candidate_text or "", p.reference_text or ""
     if cand_empty:
-        cand = (await candidate.complete(req(candidate_upstream))).choices[0].message.content or ""
+        cand_req = _request(prompt, candidate_upstream, max_tokens)
+        cand = (await candidate.complete(cand_req)).choices[0].message.content or ""
     if ref_empty:
-        ref = (await reference.complete(req(reference_upstream))).choices[0].message.content or ""
+        ref_req = _request(prompt, reference_upstream, max_tokens)
+        ref = (await reference.complete(ref_req)).choices[0].message.content or ""
     result = await judge.judge(request=prompt, candidate=cand, reference=ref)
     return replace(
         p,
@@ -226,15 +221,30 @@ async def repair_pair(
     )
 
 
-async def repair(args: argparse.Namespace) -> None:
-    pairs = read_jsonl(Path(args.pairs))
-    needed = repair_calls(pairs)
-    if needed > args.max_calls:
-        raise SystemExit(f"repair needs {needed} model calls, above --max-calls {args.max_calls}")
+@dataclass(frozen=True)
+class _Setup:
+    """The adapters, the three models resolved to (patient adapter, upstream id), and the judge:
+    what ``build`` and ``repair`` both start from."""
+
+    adapters: dict[str, ProviderAdapter]
+    candidate: PatientAdapter
+    candidate_upstream: str
+    reference: PatientAdapter
+    reference_upstream: str
+    judge_adapter: PatientAdapter
+    judge: LLMJudge
+
+    async def aclose(self) -> None:
+        # Several model names can share one provider adapter: close each adapter once.
+        for adapter in {id(a): a for a in self.adapters.values()}.values():
+            await adapter.aclose()
+
+
+def _setup(args: argparse.Namespace, *, both_orders: bool) -> _Setup:
     config = load_config(args.config)
     adapters = build_adapters(ProviderKeys(), Settings(), config.providers)
 
-    def resolve(name: str) -> tuple[ProviderAdapter, str]:
+    def resolve(name: str) -> tuple[PatientAdapter, str]:
         spec = config.models[name]
         if spec.provider not in adapters:
             raise SystemExit(f"no API key configured for provider {spec.provider!r} ({name})")
@@ -248,8 +258,18 @@ async def repair(args: argparse.Namespace) -> None:
         model=judge_up,
         name=args.judge,
         rng=random.Random(args.seed),
+        both_orders=both_orders,
         max_tokens=args.judge_max_tokens,
     )
+    return _Setup(adapters, cand_adapter, cand_up, ref_adapter, ref_up, judge_adapter, judge)
+
+
+async def repair(args: argparse.Namespace) -> None:
+    pairs = read_jsonl(Path(args.pairs))
+    needed = repair_calls(pairs)
+    if needed > args.max_calls:
+        raise SystemExit(f"repair needs {needed} model calls, above --max-calls {args.max_calls}")
+    s = _setup(args, both_orders=False)
     n_pairs = sum(needs_repair(p)[2] for p in pairs)
     print(f"{n_pairs} pairs to repair, {needed} calls (cap {args.max_calls})")
     fixed: list[EvalPair] = []
@@ -258,18 +278,17 @@ async def repair(args: argparse.Namespace) -> None:
             fixed.append(
                 await repair_pair(
                     p,
-                    candidate=cand_adapter,
-                    candidate_upstream=cand_up,
-                    reference=ref_adapter,
-                    reference_upstream=ref_up,
-                    judge=judge,
+                    candidate=s.candidate,
+                    candidate_upstream=s.candidate_upstream,
+                    reference=s.reference,
+                    reference_upstream=s.reference_upstream,
+                    judge=s.judge,
                     max_tokens=args.max_tokens,
                 )
             )
             write_jsonl(fixed + pairs[i + 1 :], Path(args.pairs))
     finally:
-        for adapter in {id(a): a for a in adapters.values()}.values():
-            await adapter.aclose()
+        await s.aclose()
     left = sum(p.judge_label is None for p in fixed)
     empty = sum(needs_repair(x)[0] or needs_repair(x)[1] for x in fixed)
     print(f"repaired; {left} judge abstentions and {empty} empty answers remain")
@@ -290,33 +309,11 @@ async def build(args: argparse.Namespace) -> None:
             f"this plan needs {needed} model calls, above --max-calls {args.max_calls}; "
             "raise it deliberately or lower --limit"
         )
-    config = load_config(args.config)
-    adapters = build_adapters(ProviderKeys(), Settings(), config.providers)
-
-    def resolve(name: str) -> tuple[ProviderAdapter, str]:
-        spec = config.models[name]
-        if spec.provider not in adapters:
-            raise SystemExit(f"no API key configured for provider {spec.provider!r} ({name})")
-        return PatientAdapter(adapters[spec.provider]), spec.provider_model
-
-    cand_adapter, cand_up = resolve(args.candidate)
-    ref_adapter, ref_up = resolve(args.reference)
-    judge_adapter, judge_up = resolve(args.judge)
-    judge = LLMJudge(
-        judge_adapter,
-        model=judge_up,
-        name=args.judge,
-        rng=random.Random(args.seed),
-        both_orders=args.both_orders,
-        max_tokens=args.judge_max_tokens,
-    )
+    s = _setup(args, both_orders=args.both_orders)
     print(
         f"{len(todo)} prompts to do ({len(pairs)} already done), "
         f"{needed} model calls planned (cap {args.max_calls})"
     )
-    patient = [
-        a for a in (cand_adapter, ref_adapter, judge_adapter) if isinstance(a, PatientAdapter)
-    ]
     stopped = ""
     try:
         for i, prompt in todo:
@@ -324,13 +321,13 @@ async def build(args: argparse.Namespace) -> None:
                 await make_pair(
                     index=i,
                     prompt=prompt,
-                    candidate=cand_adapter,
-                    candidate_upstream=cand_up,
+                    candidate=s.candidate,
+                    candidate_upstream=s.candidate_upstream,
                     candidate_name=args.candidate,
-                    reference=ref_adapter,
-                    reference_upstream=ref_up,
+                    reference=s.reference,
+                    reference_upstream=s.reference_upstream,
                     reference_name=args.reference,
-                    judge=judge,
+                    judge=s.judge,
                     judge_model=args.judge,
                     max_tokens=args.max_tokens,
                     source=args.source,
@@ -338,14 +335,13 @@ async def build(args: argparse.Namespace) -> None:
             )
             write_jsonl(pairs, out)  # saved after every pair: a crash loses one
             print(f"  {len(pairs)}/{len(all_prompts)}", flush=True)
-            if any(a.quota_hit for a in patient):
+            if any(a.quota_hit for a in (s.candidate, s.reference, s.judge_adapter)):
                 stopped = "a provider's quota ran out"
                 break
     except QuotaReached as e:
         stopped = str(e)
     finally:
-        for adapter in {id(a): a for a in adapters.values()}.values():
-            await adapter.aclose()
+        await s.aclose()
     write_jsonl(pairs, out)
     abstained = sum(p.judge_label is None for p in pairs)
     print(f"wrote {len(pairs)} pairs to {args.out} ({abstained} judge abstentions)")

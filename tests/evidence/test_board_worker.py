@@ -161,7 +161,7 @@ async def test_an_unsafe_card_takes_the_edge_away_from_strict_tenants() -> None:
         await app.state.card_board.refresh()
         refused = await c.post("/v1/chat/completions", json=body)
     # Under strict an unsafe edge is not a candidate at all, so no fallback existed and the
-    # client gets the primary's own error (Phase 7's rule, tests/reliability/test_dispatch.py).
+    # client gets the primary's own error (see tests/reliability/test_dispatch.py).
     assert refused.status_code == 502
     assert backup.calls == 1  # only the first request's failover
 

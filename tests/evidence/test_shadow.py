@@ -1,4 +1,4 @@
-"""Shadow sampling through the real gateway (ADR 0022): what gets sampled, privacy, budget,
+"""Shadow sampling through the real gateway: what gets sampled, privacy, budget,
 and that the user's response never changes."""
 
 import asyncio
@@ -24,6 +24,7 @@ from relay.evidence.store import MemoryEvidenceStore
 from relay.pipeline.context import ProviderAttempt, RequestContext
 from relay.pipeline.stage import Outcome
 from relay.providers.mock import MockProvider
+from relay.routing.base import RouteDecision
 from relay.schemas.chat import ChatRequest, Usage
 from relay.schemas.errors import ErrorClass
 from relay.telemetry.log_writer import MemorySink
@@ -334,7 +335,8 @@ def test_band_evidence_covers_only_the_band_that_would_move() -> None:
     strong = [ProviderAttempt("mock", "mock/strong", 0.1, None)]
 
     def kinds(score: float | None, reason: str = "router") -> list[str]:
-        ctx = _ctx(cfg, attempts=strong, router_reason=reason, router_score=score)
+        decision = RouteDecision("strong", "mock/strong", score, reason, "p")
+        ctx = _ctx(cfg, attempts=strong, decision=decision)
         return [j.comparison for j in jobs_for(ctx, route, spec)]
 
     assert kinds(0.7) == [band_comparison(0.6, 0.8)] == ["band:0.6-0.8"]

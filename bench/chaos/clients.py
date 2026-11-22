@@ -98,15 +98,13 @@ async def relay_client(
     client: httpx.AsyncClient, base: str, stream: bool, t0: float, content: str = "hello"
 ) -> Result:
     started = time.monotonic()
-    status, headers, ok, silent, index = await _post(client, base + CHAT, body(stream, content))
+    _, headers, ok, silent, index = await _post(client, base + CHAT, body(stream, content))
     served_by = headers.get("x-relay-provider")
     return Result(
         ok=ok,
         latency_s=time.monotonic() - started,
-        status=status,
         degraded=headers.get("x-relay-degraded") == "true",
         silent_truncation=silent,
-        stream=stream,
         served_by=served_by,
         index=index,
         started_s=started - t0,
@@ -117,13 +115,11 @@ async def direct_client(
     client: httpx.AsyncClient, primary: str, model: str, stream: bool, t0: float
 ) -> Result:
     started = time.monotonic()
-    status, _, ok, silent, index = await _post(client, primary + CHAT, body(stream), model)
+    _, _, ok, silent, index = await _post(client, primary + CHAT, body(stream), model)
     return Result(
         ok=ok,
         latency_s=time.monotonic() - started,
-        status=status,
         silent_truncation=silent,
-        stream=stream,
         served_by="primary",
         index=index,
         started_s=started - t0,
@@ -141,27 +137,19 @@ async def naive_retry_client(
 ) -> Result:
     started = time.monotonic()
 
-    async def try_primary() -> tuple[bool, tuple[int, bool, int | None]]:
-        status, _, ok, silent, index = await _post(
-            client, primary + CHAT, body(stream), primary_model
-        )
-        return ok, (status, silent, index)
+    async def attempt(url: str, model: str) -> tuple[bool, tuple[bool, int | None]]:
+        _, _, ok, silent, index = await _post(client, url + CHAT, body(stream), model)
+        return ok, (silent, index)
 
-    async def try_fallback() -> tuple[bool, tuple[int, bool, int | None]]:
-        status, _, ok, silent, index = await _post(
-            client, fallback + CHAT, body(stream), fallback_model
-        )
-        return ok, (status, silent, index)
-
-    ok, (status, silent, index), served_by = await naive_retry(try_primary, try_fallback)
+    ok, (silent, index), served_by = await naive_retry(
+        lambda: attempt(primary, primary_model), lambda: attempt(fallback, fallback_model)
+    )
     return Result(
         ok=ok,
         latency_s=time.monotonic() - started,
-        status=status,
         # A success on the primary was never counted as a truncation; the fallback's result
         # reports whatever the fallback did.
         silent_truncation=silent if served_by == "fallback" else False,
-        stream=stream,
         served_by=served_by,
         index=index,
         started_s=started - t0,

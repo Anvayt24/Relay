@@ -1,13 +1,13 @@
-"""The evidence engine's validation experiments (M5, M6, M8).
+"""The evidence engine's validation experiments.
 
     python -m evals.evidence.evaluate            # write metrics.json, report.md, evidence.png
     python -m evals.evidence.evaluate --check    # CI: re-run the reduced gate, compare
 
 Everything runs on the simulator's model with fixed seeds, so the numbers are deterministic:
-- ``coverage``: M6, empirical coverage of nominal 95% PPI intervals (``coverage.py``);
-- ``detection``: M5, detection delay at a matched false-alarm rate (``detection.py``);
+- ``coverage``: empirical coverage of nominal 95% PPI intervals (``coverage.py``);
+- ``detection``: detection delay at a matched false-alarm rate (``detection.py``);
 - ``sensitivity``: the gate with and without PPI, and a drifting judge;
-- ``cost``: M8, shadow + judge cost as a share of routed spend, measured through the gateway;
+- ``cost``: shadow + judge cost as a share of routed spend, measured through the gateway;
 - ``canary``: a bad canary is rolled back and a good one is recommended.
 
 **The CI gate.** The full experiments take a minute or two, too slow for every check, so
@@ -15,7 +15,7 @@ Everything runs on the simulator's model with fixed seeds, so the numbers are de
 headline numbers, rounded to 4 decimals, with the ``gate`` section of the committed
 ``metrics.json``. Any change to the statistics, the cards or the shadow stage that moves a
 number fails CI until ``make eval-evidence`` is re-run and the new metrics committed
-(CLAUDE.md: any change to router, cache or policy re-runs the evals).
+(any change to router, cache or policy re-runs the evals).
 
 Every target is reported whether or not it is met.
 """
@@ -65,15 +65,8 @@ def gate() -> dict[str, float]:
     return {k: round(float(v), 4) for k, v in out.items()}
 
 
-def write_text(path: Path, text: str) -> None:
-    # LF on every platform: the committed files are compared byte for byte in CI (Linux).
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-
-
 def report(m: dict[str, Any]) -> str:
     cov, det, sen, m8, can = m["coverage"], m["detection"], m["sensitivity"], m["cost"], m["canary"]
-    yes = {True: "**met**", False: "**not met**"}
     lines = [
         "# Evidence engine: validation experiments",
         "",
@@ -81,13 +74,13 @@ def report(m: dict[str, Any]) -> str:
         "the numbers measure the statistics and the machinery, on the simulator's model of "
         "quality and judge error, not real traffic.",
         "",
-        "## M6: interval coverage (target >= 93%)",
+        "## Interval coverage",
         "",
         f"{cov['runs_per_cell']} datasets per cell; {len(cov['cells'])} cells (human labels x "
         f"judge-only pairs x true w x judge). Worst cell: Wald {cov['worst']['wald']:.3f}, "
-        f"bootstrap {cov['worst']['bootstrap']:.3f}. Cells below target: Wald "
+        f"bootstrap {cov['worst']['bootstrap']:.3f}. Cells below {cov['target']:.0%}: Wald "
         f"{cov['cells_below_target']['wald']}, bootstrap {cov['cells_below_target']['bootstrap']}."
-        f" Interval used by the cards: **{cov['chosen_interval']}**; M6 {yes[cov['met']]}.",
+        f" Interval used by the cards: **{cov['chosen_interval']}**.",
         "",
         "With 1,000 runs a coverage estimate has a Monte Carlo standard error of about 0.008, "
         "so cells within ~0.01 of 0.93 are not clearly below it.",
@@ -104,7 +97,7 @@ def report(m: dict[str, Any]) -> str:
     mon = det["monitors"]
     lines += [
         "",
-        "## M5: detection delay at a matched false-alarm rate",
+        "## Detection delay at a matched false-alarm rate",
         "",
         f"w drops {det['w_before']} -> {det['w_after']} (floor {det['floor']}); "
         f"{det['streams']} null and {det['streams']} change streams; false alarms over "
@@ -129,8 +122,7 @@ def report(m: dict[str, Any]) -> str:
         )
     lines += [
         "",
-        f"Faster at matched false alarms: **{det['faster_at_matched_false_alarms']}**; "
-        f"M5 (E1 faster than the fixed threshold) {yes[det['met']]}.",
+        f"Faster at matched false alarms: **{det['faster_at_matched_false_alarms']}**.",
         "",
         "Why `lambda = 1` for E1: PPI++ tunes lambda on human labels from *before* the change; "
         "with few losses at w = 0.95 it is about 0.3, so the estimate leans on the stale human "
@@ -159,7 +151,7 @@ def report(m: dict[str, Any]) -> str:
         "became loss-blind. The rectifier is stale, and PPI's protection shrinks: the reason "
         "cards go `stale`, and fresh labels are needed after any change.",
         "",
-        "## M8: evidence cost share (target <= 10%)",
+        "## Evidence cost share",
         "",
         "| sample rate | requests | shadow pairs | routed list cost | evidence list cost | share |",
         "|---|---|---|---|---|---|",
@@ -174,7 +166,7 @@ def report(m: dict[str, Any]) -> str:
     lines += [
         "",
         f"Traffic mix: {m8['cheap_share']:.0%} cheap (the simulated router's share); judge "
-        f"{m8['judge']}. M8 {yes[m8['met']]}.",
+        f"{m8['judge']}.",
         "",
         "### The same traffic with the calibrated judge (Claude Sonnet 5.5)",
         "",
@@ -196,9 +188,10 @@ def report(m: dict[str, Any]) -> str:
         )
     lines += [
         "",
-        f"With the Sonnet judge M8 is {yes[m8['sonnet_judge']['met']]} at the default 5% "
-        "sampling and holds only at a lower rate; `shadow_budget_usd_per_day` caps the spend in "
-        "absolute terms either way.",
+        f"With the Sonnet judge the share is "
+        f"{m8['sonnet_judge']['undecided_rate']['share']:.1%} at the default 5% sampling and "
+        f"{m8['sonnet_judge']['decided_rate']['share']:.1%} at 1%; "
+        "`shadow_budget_usd_per_day` caps the spend in absolute terms either way.",
         "",
         "## Canary: automatic rollback on an unsafe card",
         "",
@@ -237,16 +230,22 @@ def plot(m: dict[str, Any], path: Path) -> bool:
     a.plot(xs, [c["wald"] for c in cells], "o", ms=3, label="Wald (PPI++)")
     a.plot(xs, [c["bootstrap"] for c in cells], "x", ms=3, label="percentile bootstrap")
     a.axhline(0.95, color="grey", ls=":", lw=1)
-    a.axhline(m["coverage"]["target"], color="C3", ls="--", lw=1, label="M6 target")
+    a.axhline(
+        m["coverage"]["target"],
+        color="C3",
+        ls="--",
+        lw=1,
+        label=f"{m['coverage']['target']:.0%} reference",
+    )
     a.set_xlabel("grid cell (sorted by Wald coverage)")
     a.set_ylabel("empirical coverage")
-    a.set_title("M6: coverage of nominal 95% intervals")
+    a.set_title("Coverage of nominal 95% intervals")
     a.legend(loc="lower right")
     mon = m["detection"]["monitors"]
     names = ["fixed_threshold", "e1_matched", "e1_ppi_pp_matched", "e1_bonferroni"]
     b.barh(names, [mon[n]["median_delay"] for n in names], color=["C0", "C1", "C2", "C4"])
     b.set_xlabel("median detection delay (judged samples)")
-    b.set_title("M5: delay at matched false-alarm rate")
+    b.set_title("Delay at matched false-alarm rate")
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
@@ -272,8 +271,9 @@ def main() -> int:
         print(f"evidence eval OK: {new}")
         return 0
     metrics = {**full(), "gate": gate()}
-    write_text(path, json.dumps(metrics, indent=2) + "\n")
-    write_text(HERE / "report.md", report(metrics))
+    # LF on every platform: the committed files are compared byte for byte in CI (Linux).
+    path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (HERE / "report.md").write_text(report(metrics), encoding="utf-8", newline="\n")
     plotted = plot(metrics, HERE / "evidence.png")
     print(json.dumps(metrics["gate"], indent=2))
     print("wrote metrics.json, report.md" + (", evidence.png" if plotted else ""))

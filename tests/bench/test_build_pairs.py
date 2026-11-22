@@ -17,7 +17,7 @@ from ..evidence.test_rubric_and_judge import FakeAdapter
 
 
 def test_planned_calls_counts_candidate_reference_and_judge() -> None:
-    assert planned_calls(30, both_orders=False) == 90  # the Phase 9 pilot
+    assert planned_calls(30, both_orders=False) == 90  # the pilot run
     assert planned_calls(30, both_orders=True) == 120
 
 
@@ -105,7 +105,7 @@ async def test_patient_adapter_does_not_retry_other_errors() -> None:
         await adapter.complete(req)
 
 
-# ---------------------------------------------------------------- quotas and resuming (Phase 11)
+# ---------------------------------------------------------------- quotas and resuming
 async def test_a_daily_quota_stops_the_run_instead_of_waiting_or_retrying() -> None:
     from evals.judge import build_pairs as pm
     from relay.schemas.errors import ErrorClass, ProviderError

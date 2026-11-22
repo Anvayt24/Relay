@@ -1,6 +1,6 @@
-"""HTTP mode: the simulator as a network service (PRD §11.1, "wire-compatible").
+"""HTTP mode: the simulator as a network service ("wire-compatible").
 
-Relay's real adapters (Phase 4), the naive retry client and LiteLLM (Phase 8) all talk HTTP.
+Relay's real adapters, the naive retry client and LiteLLM all talk HTTP.
 To compare them fairly they must hit **the same endpoints with the same scenario**, so the
 simulator serves both provider formats over HTTP:
 
@@ -17,7 +17,7 @@ Both routes share one flow (``_serve``) and differ only in the translation (``op
      incomplete body.
    - Anthropic's format: an ``event: error`` frame, then the stream ends.
 
-As in Relay's own streaming (Phase 2), the first chunk is pulled *before* answering: that is
+As in Relay's own streaming, the first chunk is pulled *before* answering: that is
 what decides between case 1 and case 2.
 
 Simulator-only headers (a real provider would ignore them, and so does Relay):

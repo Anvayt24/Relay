@@ -1,5 +1,5 @@
--- One row per request that reached the pipeline (PRD §9.4, FR-8). A subset of the PRD's
--- columns: later phases add cost, cache, fallback and evidence columns in new migrations.
+-- One row per request that reached the pipeline. Later migrations add cost, cache, fallback
+-- and evidence columns.
 
 CREATE TABLE requests (
     -- Surrogate key. request_id is NOT the primary key: clients can supply it (X-Request-ID)

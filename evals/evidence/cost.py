@@ -1,4 +1,4 @@
-"""M8: what evidence costs, as a share of what the route spends.
+"""What evidence costs, as a share of what the route spends.
 
 Measured, not computed: real traffic goes through the in-process gateway (the simulator as
 every provider, list prices from the price table), with shadow sampling on at the shipped
@@ -9,8 +9,8 @@ default rates. The cost is then read back from where Relay records it:
   the judge call's list cost, from the usage the judge's provider reported).
 
 Both at **list** price, because free tiers make billed spend about $0 and the ratio would be
-undefined (M8's definition). The traffic mix is the router's: about 37% of requests served
-cheap (the simulated router's measured share, evals/router), the rest strong. The bulk judge
+undefined. The traffic mix is the router's: about 37% of requests served cheap (the simulated
+router's measured share, evals/router), the rest strong. The bulk judge
 is the cheap model (the intended design is a cheap bulk judge).
 
 Evidence is only gathered on cheap-served requests here (``cheap_vs_strong``), so its cost is

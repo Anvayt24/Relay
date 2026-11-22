@@ -8,8 +8,8 @@ unknown or revoked one, and raises ``KeyStoreUnavailable`` when it cannot tell.
 - *Can't tell* (Postgres down) means 503 ``auth_unavailable``: the key may well be valid,
   and telling a paying client its good key is invalid would be both wrong and alarming.
 
-``CachedKeyStore`` handles that degradation (PRD §8, "Postgres down: auth uses a TTL in-memory
-key cache; keys not yet cached fail until recovery"):
+``CachedKeyStore`` handles that degradation (with Postgres down, auth uses a TTL in-memory
+key cache, and keys not yet cached fail until recovery):
 
 - **Fresh positive entries** (≤ 5 min) are served without a query, which takes load off
   Postgres. The cost: revoking a key takes up to 5 minutes to bite on each replica.

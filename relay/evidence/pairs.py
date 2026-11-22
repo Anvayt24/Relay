@@ -1,6 +1,6 @@
 """Evaluation pairs: a candidate answer and a reference answer to the same prompt, judged.
 
-``EvalPair`` is one row of PRD §9.4's ``eval_pairs`` table, wherever it came from. It is the
+``EvalPair`` is one row of the ``eval_pairs`` table, wherever it came from. It is the
 only type for that row (found in review: the shadow stage's ``ShadowPair`` and this file's
 pair described the same table with different field names, and had two insert paths):
 

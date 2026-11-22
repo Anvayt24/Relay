@@ -1,4 +1,4 @@
-"""YAML scenarios, runtime incidents and upstream-load stats (Phase 8: the chaos plumbing)."""
+"""YAML scenarios, runtime incidents and upstream-load stats: the chaos plumbing."""
 
 import httpx
 import pytest

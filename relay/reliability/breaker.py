@@ -1,4 +1,4 @@
-"""Circuit breakers, one per (provider, model), per replica (PRD FR-5; ADR 0009).
+"""Circuit breakers, one per (provider, model), per replica.
 
 A failing upstream costs every request that tries it a timeout or an error before it can fall
 back. A breaker remembers recent failures and, past a threshold, stops calling that model

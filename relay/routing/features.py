@@ -1,4 +1,4 @@
-"""What the router looks at (PRD FR-7): the meaning of the prompt, plus a few cheap facts.
+"""What the router looks at: the meaning of the prompt, plus a few cheap facts.
 
 A feature vector is two blocks laid end to end:
 
@@ -39,7 +39,7 @@ N_SCALARS = len(SCALAR_NAMES)
 
 
 def last_user_text(req: ChatRequest) -> str:
-    """The last user message, normalized. FR-7: the router decides from what is being asked
+    """The last user message, normalized. The router decides from what is being asked
     *now*, not from earlier turns. A request with no user message gets the empty string."""
     for message in reversed(req.messages):
         if message.role == "user":
@@ -51,7 +51,7 @@ def count_turns(req: ChatRequest) -> int:
     return sum(1 for m in req.messages if m.role == "user")
 
 
-def scalar_features(text: str, *, turns: int = 1, tools: bool = False) -> list[float]:
+def scalar_features(text: str, *, turns: int = 1) -> list[float]:
     """The raw (not yet standardized) scalar block, in ``SCALAR_NAMES`` order."""
     script = script_of(text)
     script = script if script in SCRIPTS else "other"
@@ -59,7 +59,9 @@ def scalar_features(text: str, *, turns: int = 1, tools: bool = False) -> list[f
         math.log1p(len(text)),
         float(turns),
         float("```" in text),
-        float(tools),
+        # has_tools: requests with tools are rejected, so this is always 0.0 today; the slot
+        # exists so the layout won't change when tool pass-through arrives.
+        0.0,
         *(float(script == s) for s in SCRIPTS),
     ]
 
@@ -67,9 +69,7 @@ def scalar_features(text: str, *, turns: int = 1, tools: bool = False) -> list[f
 def request_scalars(req: ChatRequest) -> tuple[str, list[float]]:
     """(the text the embedding is computed from, its scalar features) for a request."""
     text = last_user_text(req)
-    # Tools are rejected at P0 (FR-1), so this is always False today; the slot exists so the
-    # layout won't change when tool pass-through arrives.
-    return text, scalar_features(text, turns=count_turns(req), tools=False)
+    return text, scalar_features(text, turns=count_turns(req))
 
 
 def standardize(scalars: np.ndarray, mean: np.ndarray, scale: np.ndarray) -> np.ndarray:

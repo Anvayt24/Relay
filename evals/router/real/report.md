@@ -1,14 +1,14 @@
 # Router evaluation: real world
 
-**Real data, uncalibrated judge.** Labels come from an LLM judge that has not passed the M7 gate (no human labels yet), the set is small, so treat every interval as wide and nothing here may drive a decision.
+**Real data, uncalibrated judge.** Labels come from an LLM judge that has not been calibrated against human labels yet, the set is small, so treat every interval as wide and nothing here may drive a decision.
 
 Router `router-real-v1` (embedding `BAAI/bge-small-en-v1.5`). Test split: 27 prompts, 0 of them gold-labeled.
 
-## Headline (M4: lower 95% bound of policy quality >= 0.95, share to cheap >= 40%)
+## Headline (quality floor: lower 95% bound of policy quality >= 0.95)
 
 - Threshold, chosen on **validation** only: **0.76** 
-- On **test**, **3.7%** of requests go to the cheap model (target 40%: NOT met).
-- Quality vs judge only: **1.0000**, one-sided 95% lower bound **1.0000** (floor 0.95: met).
+- On **test**, **3.7%** of requests go to the cheap model.
+- Quality vs judge only: **1.0000**, one-sided 95% lower bound **1.0000** (floor 0.95: above).
 - Judge-only estimate (biased by the judge's errors): 1.0000.
 - List-price cost saved vs always-strong: 1.9% (illustrative: 100 prompt + 300 completion tokens per request, list prices from relay.yaml).
 

@@ -1,4 +1,4 @@
-"""Where evidence lives: judged pairs, human labels and route cards (PRD §9.4).
+"""Where evidence lives: judged pairs, human labels and route cards.
 
 One protocol, two implementations, like the other stores:
 - ``MemoryEvidenceStore``: tests, and a gateway with no database (pairs then live only as long
@@ -162,17 +162,13 @@ ORDER BY random()
 LIMIT $2
 """
 
-_UPSERT_CARD = """
+# A plain insert: save_cards deletes every card first, in the same transaction, and the
+# worker computes at most one card per (route, comparison, cohort), so nothing can conflict.
+_INSERT_CARD = """
 INSERT INTO route_cards (route, comparison, cohort, state, estimate, ci_low, ci_high, floor,
                          n_judge, n_human, look, recommended_action, policy_version, card,
                          updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15)
-ON CONFLICT (route, comparison, cohort) DO UPDATE SET
-    state = EXCLUDED.state, estimate = EXCLUDED.estimate, ci_low = EXCLUDED.ci_low,
-    ci_high = EXCLUDED.ci_high, floor = EXCLUDED.floor, n_judge = EXCLUDED.n_judge,
-    n_human = EXCLUDED.n_human, look = EXCLUDED.look,
-    recommended_action = EXCLUDED.recommended_action, policy_version = EXCLUDED.policy_version,
-    card = EXCLUDED.card, updated_at = EXCLUDED.updated_at
 """
 
 
@@ -282,7 +278,7 @@ class PostgresEvidenceStore:
         async with self._need_pool().acquire() as conn, conn.transaction():
             await conn.execute("DELETE FROM route_cards")
             await conn.executemany(
-                _UPSERT_CARD,
+                _INSERT_CARD,
                 [
                     (
                         c.route,

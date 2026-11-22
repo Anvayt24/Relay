@@ -1,4 +1,4 @@
-"""ResilientStore's degraded mode (PRD §8): a Redis that just failed is not asked again for a
+"""ResilientStore's degraded mode: a Redis that just failed is not asked again for a
 moment, so an outage costs one timeout, not one per call."""
 
 import pytest

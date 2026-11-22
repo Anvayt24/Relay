@@ -15,7 +15,7 @@ So: build a few hundred pairs from a scenario, give the judge a known sensitivit
 2. the **gate** flips where it should: a good judge is ``calibrated``, a judge that misses
    half the losses is ``uncalibrated``.
 
-This is the PRD §10.9 / M7 machinery tested end to end, with ground truth (it is a
+This is the judge-calibration machinery tested end to end, with ground truth (it is a
 simulation, and says so). An eval, so it lives in ``evals/`` (moved from ``relay/`` in review);
 its three judges are the evidence evals' (``evals/evidence/sim.py``), not a copy.
 """

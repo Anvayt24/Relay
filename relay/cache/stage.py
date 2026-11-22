@@ -1,4 +1,4 @@
-"""CacheStage: answer from the cache, or remember the answer for next time (PRD FR-6).
+"""CacheStage: answer from the cache, or remember the answer for next time.
 
     Log → Admission → [Cache] → Route → Reservation → Provider
 
@@ -6,7 +6,7 @@
 - *after admission*, so a hit still counts toward the tenant's requests-per-minute and
   concurrency (a cache can't be used to bypass rate limits), but reserves no tokens or money;
 - *before the router*, so a hit never pays for routing, and so the one embedding the semantic
-  layer computes can be reused by the router (Phase 11).
+  layer computes can be reused by the router.
 
 **On a hit** the stage short-circuits with a response (or a replayed stream), and no provider
 is called, no reservation is made, and billed cost is zero. The headers say where it came from
@@ -15,7 +15,7 @@ is called, no reservation is made, and billed cost is zero. The headers say wher
 **On a miss** it lets the request through and, in ``finalize``, writes the finished answer
 back **in a background task**: the client never waits for a cache write. Only complete,
 trustworthy answers are written: success, ``finish_reason: stop`` (not truncated), and not
-served through an un-evidenced fallback edge (ADR 0010: a degraded answer should not become
+served through an un-evidenced fallback edge (a degraded answer should not become
 the cached answer for everyone).
 
 **Failure is a miss.** Redis or Postgres being down, a slow embedding, a model that failed to
@@ -290,7 +290,7 @@ class CacheStage:
 
 def cache_scope(ctx: RequestContext) -> str:
     """Whose entries a request may see: its tenant's, and for a request to the route's router
-    alias, only those produced under the same policy bundle (ADR 0023). A new bundle can route
+    alias, only those produced under the same policy bundle. A new bundle can route
     differently, so an answer chosen under the old one must not be served under it. Requests
     for an explicit model or another alias don't depend on the router and keep their entries."""
     applied = ctx.applied

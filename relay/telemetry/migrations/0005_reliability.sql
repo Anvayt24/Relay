@@ -1,4 +1,4 @@
--- Phase 7: what reliability did for each request (PRD §9.4).
+-- What reliability did for each request.
 
 -- How many fallback models were attempted (0 = the primary answered or nothing was tried),
 -- whether an edge without evidence served it (X-Relay-Degraded), and which policy decided.

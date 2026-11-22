@@ -3,10 +3,10 @@
 This is the mirror image of ``relay/api/``. There, Relay is the server and must *produce*
 OpenAI-compatible responses for its clients. Here the simulator plays OpenAI (or Groq, or
 OpenRouter, which copy the format), and what matters is reproducing the provider's
-behavior, quirks included, so Phase 4's adapters are tested against something realistic:
+behavior, quirks included, so Relay's adapters are tested against something realistic:
 
 - Errors use OpenAI's ``type``/``code`` pairs. The adapter must tell ``rate_limit_exceeded``
-  from ``insufficient_quota`` (same 429, different meaning: Appendix B).
+  from ``insufficient_quota`` (same 429, different meaning; see relay/reliability/policy.py).
 - 429s carry ``retry-after`` (whole seconds) and ``retry-after-ms``, plus ``x-ratelimit-*``
   headers on every response.
 - A mid-stream failure is **not** an error event. A real provider's connection just drops.
@@ -91,7 +91,7 @@ def rate_limit_headers(limits: LimitState | None) -> dict[str, str]:
 def duration(seconds: float) -> str:
     """OpenAI's reset format: Go-style durations such as ``"120ms"``, ``"1.5s"``, ``"6m0s"``.
 
-    An adapter has to parse this (Phase 4), so the simulator must produce it, not plain
+    An adapter has to parse this, so the simulator must produce it, not plain
     seconds.
     """
     if seconds < 1:

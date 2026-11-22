@@ -1,7 +1,7 @@
 # web/
 
 The demo page: plain HTML, CSS and TypeScript, no framework and no runtime dependency.
-`tsc` compiles `src/` to `dist/`; Relay serves this folder at `/` (ADR 0028).
+`tsc` compiles `src/` to `dist/`; Relay serves this folder at `/`.
 
     npm install        # once: installs TypeScript
     npm run build      # src/ -> dist/

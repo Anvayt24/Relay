@@ -1,4 +1,4 @@
-"""API keys: generation and hashing (PRD FR-3).
+"""API keys: generation and hashing.
 
 A key looks like ``rk_<43 url-safe chars>``: 32 random bytes, 256 bits, from ``secrets``
 (the OS's cryptographic RNG; ``random`` is predictable and must never make keys).

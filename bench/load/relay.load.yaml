@@ -1,5 +1,5 @@
 # Relay's config for the load test: one simulated upstream, one tenant with limits far above
-# the test's rate. No router or cache exists yet, so this is the passthrough case M1(a).
+# the test's rate. The tenant has no router or cache, so this is the passthrough case.
 price_table_version: "load-1"
 providers:
   sim: {kind: openai, base_url: "http://sim:8100/v1", api_key_env: LOAD_KEY, limit_scope: model}

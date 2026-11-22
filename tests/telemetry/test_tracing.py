@@ -1,5 +1,5 @@
-"""Traces (PRD FR-8; ADR 0025): one span tree per request, shaped like the pipeline, with the
-attributes FR-8 lists, and nothing at all when tracing is off."""
+"""Traces: one span tree per request, shaped like the pipeline, with the request's
+attributes, and nothing at all when tracing is off."""
 
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -89,7 +89,7 @@ async def test_a_request_is_one_trace_shaped_like_the_pipeline(
     [provider_stage] = names["relay.stage.provider"]
     assert attempt.parent.span_id == provider_stage.context.span_id  # type: ignore[union-attr]
     assert attempt.attributes["relay.model"] == "mock/strong"  # type: ignore[index]
-    # FR-8's attribute list, on the root span.
+    # The request's attributes, on the root span.
     attrs = root.attributes or {}
     assert attrs["relay.request_id"] == r.headers["x-request-id"]
     assert attrs["http.response.status_code"] == 200

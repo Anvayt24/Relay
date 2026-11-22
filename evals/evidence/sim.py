@@ -1,4 +1,4 @@
-"""Vectorized draws from the simulator's quality-and-judge model (PRD §11.1).
+"""Vectorized draws from the simulator's quality-and-judge model.
 
 The evidence experiments need hundreds of thousands of judged pairs per configuration, so they
 draw them as numpy arrays instead of calling ``relay.simulator`` one request at a time. The

@@ -1,5 +1,6 @@
-# M1(b): the load stack with the response cache on and Postgres + pgvector behind it, so every
-# request pays for the full pipeline: embedding, a vector lookup, and the cache write-back.
+# The cache case: the load stack with the response cache on and Postgres + pgvector behind it,
+# so every request pays for the full pipeline: embedding, a vector lookup, and the cache
+# write-back.
 # Used as an override: docker compose -f docker-compose.yml -f docker-compose.cache.yml ...
 services:
   postgres:
@@ -8,8 +9,6 @@ services:
       POSTGRES_USER: relay
       POSTGRES_PASSWORD: relay
       POSTGRES_DB: relay
-    volumes:
-      - ../../deploy/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
       interval: 2s

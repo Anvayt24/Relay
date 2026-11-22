@@ -1,4 +1,4 @@
-"""Admission, reservations, budgets and pauses through the HTTP API (PRD FR-4, FR-9)."""
+"""Admission, reservations, budgets and pauses through the HTTP API."""
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -242,7 +242,7 @@ async def test_redis_down_hard_budget_fails_closed(
     async with serving(app) as client:
         r = await client.post(CHAT, json=_body())
         ready = await client.get("/readyz")
-    # "Overspend is worse than unavailability" (PRD §8).
+    # Overspend is worse than unavailability.
     assert r.status_code == 503
     assert r.json()["error"]["code"] == ErrorClass.BUDGET_UNAVAILABLE
     assert ready.status_code == 200  # degraded, still serving others: never "not ready"

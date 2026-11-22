@@ -1,4 +1,4 @@
-"""Cohorts: slices of traffic that the evidence is reported per (PRD §10.1, ADR 0013).
+"""Cohorts: slices of traffic that the evidence is reported per.
 
 A route can be safe overall and unsafe for one kind of request: a cheap model that is fine in
 English but not in Hindi, or fine for chat but not for code. Averaging hides that, so every
@@ -13,7 +13,7 @@ small to say anything (and would be an unbounded metric label):
   ``latin``. Honest and free; a real language ID model is a possible later refinement.
 - ``len``: ``short`` / ``medium`` / ``long`` by prompt characters.
 - ``code``: the prompt contains a code fence.
-- ``tools``: the request uses tools (always false until tool pass-through, FR-1 P1).
+- ``tools``: the request uses tools (always false until tool pass-through).
 
 The client's own ``X-Relay-Cohort`` tag (already limited to the tenant's allowlist) is kept
 separate, as a free extra dimension.
@@ -42,8 +42,7 @@ class Cohort:
     lang: str
     length: str
     code: bool
-    tools: bool = False
-    tag: str | None = None  # the client's X-Relay-Cohort, if any
+    tools: bool = False  # always false until tool pass-through; kept so the key won't change
 
     @property
     def key(self) -> str:
@@ -68,7 +67,7 @@ def script_of(text: str) -> str:
     return max(counts, key=lambda s: counts[s]) if counts else "other"
 
 
-def cohort_of(prompt: str, *, tools: bool = False, tag: str | None = None) -> Cohort:
+def cohort_of(prompt: str) -> Cohort:
     n = len(prompt)
     length = "short" if n <= SHORT_MAX_CHARS else "medium" if n <= MEDIUM_MAX_CHARS else "long"
-    return Cohort(lang=script_of(prompt), length=length, code="```" in prompt, tools=tools, tag=tag)
+    return Cohort(lang=script_of(prompt), length=length, code="```" in prompt)

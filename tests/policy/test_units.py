@@ -1,4 +1,4 @@
-"""Policy bundles, the pointer transitions, and the runtime, without HTTP (ADRs 0023, 0024)."""
+"""Policy bundles, the pointer transitions, and the runtime, without HTTP."""
 
 from datetime import date
 
@@ -292,3 +292,36 @@ async def test_concurrent_refreshes_never_apply_an_older_pointer_last() -> None:
     await poller.refresh()  # the admin API's refresh, after the change
     await old
     assert rt.snapshot().active.version == V2
+
+
+async def test_an_unexpected_error_while_applying_keeps_the_policy_and_the_poller_alive() -> None:
+    # Found in review: an error other than BundleError raised while building the snapshot
+    # (here, by the router factory) escaped refresh(), and the poll loop has no guard of its
+    # own, so the background task died and the replica never refreshed again.
+    from relay.policy.poller import PolicyPoller
+    from relay.policy.store import MemoryPolicyStore
+
+    fail = True
+
+    def factory(cfg: object, arts: object) -> StaticRouter:
+        if fail:
+            raise RuntimeError("router factory broke")
+        return StaticRouter(BASE, dict(BASE.models))
+
+    rt = PolicyRuntime(
+        BASE,
+        bootstrap=StaticRouter(BASE, dict(BASE.models)),
+        router_factory=factory,
+        can_route=True,
+        has_evidence=True,
+    )
+    store = MemoryPolicyStore()
+    await store.create(v1(), created_by="t")
+    await store.change("activate", lambda p: control.activate(p, V1), actor="t")
+    poller = PolicyPoller(store, rt, poll_s=60)
+    before = rt.snapshot()
+    assert await poller.refresh() is False  # kept the current policy, did not raise
+    assert rt.snapshot() is before
+    fail = False
+    assert await poller.refresh() is True  # the next poll still applies the pointer
+    assert rt.snapshot().active.version == V1

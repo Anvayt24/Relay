@@ -1,4 +1,4 @@
-"""Token estimates for reservations (PRD FR-4; ADR 0006 answers PRD §15 Q13).
+"""Token estimates for reservations.
 
 Before a request runs, Relay must reserve TPM and money for it, so it needs a token count it
 can't know yet. The estimate:

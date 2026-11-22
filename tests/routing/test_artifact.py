@@ -1,4 +1,4 @@
-"""The router artifact: a safe, validated file format (ADR 0017)."""
+"""The router artifact: a safe, validated file format."""
 
 import json
 from pathlib import Path

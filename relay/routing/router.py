@@ -1,5 +1,4 @@
-"""Router v1: a trained logistic regression decides cheap vs strong for ``relay/auto``
-(PRD FR-7; ADR 0017).
+"""Router v1: a trained logistic regression decides cheap vs strong for ``relay/auto``.
 
     alias lookup (StaticRouter) ─▶ the route's router alias?   no ─▶ that decision, unchanged
                                               │ yes
@@ -12,12 +11,12 @@
 **What the router never touches.** The static router runs first, so everything it decides
 stays decided: unknown models (404), ``relay/cheap``, ``relay/strong``, and **explicit
 provider-qualified models**, which bypass the router entirely (reason stays ``explicit``, so
-ADR 0011's no-fallback rule still applies to them).
+the no-fallback rule for explicit models still applies to them).
 
 **Every failure routes to strong, and none of them is an error.** No artifact, a corrupt one,
 an artifact trained on a different embedding model, an embedder that is off, still loading,
 failing or slow: each ends in the strong model, with ``router_fallback:<cause>`` as the
-reason and a counter. Strong is the quality-safe default (PRD degradation matrix): the cost of
+reason and a counter. Strong is the quality-safe default: the cost of
 a router failure is money, never answer quality.
 
 **The router does not know about tenants.** It only chooses between the route's own
@@ -98,10 +97,12 @@ class TrainedRouter:
         started = time.perf_counter()
         artifact = self._artifacts.get(ctx.route)
         cheap_name, strong_name = route.aliases["relay/cheap"], route.aliases["relay/strong"]
+        if artifact is None:
+            return self._fallback(ctx, decision, strong_name, artifact, "no_artifact", shadow)
         score, cause = await self._score(req, ctx, artifact, spec.embed_timeout_s, shadow)
 
-        if score is None or artifact is None:
-            cause = cause or "no_artifact"
+        if score is None:
+            assert cause is not None  # _score always says why it could not score
             return self._fallback(ctx, decision, strong_name, artifact, cause, shadow)
         if cheap_name not in self._available:
             return self._fallback(ctx, decision, strong_name, artifact, "cheap_unavailable", shadow)
@@ -125,12 +126,10 @@ class TrainedRouter:
         self,
         req: ChatRequest,
         ctx: "RequestContext",
-        artifact: RouterArtifact | None,
+        artifact: RouterArtifact,
         timeout_s: float,
         shadow: bool,
     ) -> tuple[float | None, str | None]:
-        if artifact is None:
-            return None, "no_artifact"
         embedder = self._embedder
         if embedder is None and ctx.embedding is None:
             return None, "embedder_off"

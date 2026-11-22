@@ -56,7 +56,7 @@ class JudgeSettings:
 
 # Per judge:
 # - flash-lite answers directly: 16 tokens hold a v1 verdict. Free tier ~15 requests/minute.
-# - gpt-oss-20b reasons before answering (the Phase 9 pilot needed ~200 tokens).
+# - gpt-oss-20b reasons before answering (an earlier pilot needed ~200 tokens).
 # - Gemini Flash thinks by default, and its thoughts count against max_tokens, so it gets
 #   room; on the free tier its tokens cost nothing.
 # - Claude Sonnet 5.5 runs with thinking off (NoThinkingAnthropic): 600 tokens hold a reason
@@ -93,7 +93,6 @@ class CountingAdapter:
         self._inner = inner
         self.name = inner.name
         self.calls = 0
-        self.failures = 0
         self.last_ok = True
 
     async def complete(self, req: ChatRequest) -> ChatResponse:
@@ -101,7 +100,6 @@ class CountingAdapter:
         try:
             response = await self._inner.complete(req)
         except ProviderError:
-            self.failures += 1
             self.last_ok = False
             raise
         self.last_ok = True
@@ -168,27 +166,24 @@ async def judge_all(
         current += 1
         consecutive_failures = 0
 
+    def stop(reason: str) -> RunSummary:
+        summary.stopped = reason
+        summary.upstream_calls = upstream()
+        return summary
+
     judged_now = 0
     for i, pair in enumerate(pairs):
         if pair.judge_model:
             continue  # judged in an earlier run
         if limit is not None and judged_now >= limit:
-            summary.stopped = f"limit of {limit} pairs reached (a probe)"
-            summary.upstream_calls = upstream()
-            return summary
+            return stop(f"limit of {limit} pairs reached (a probe)")
         while True:
             if current >= len(slots):
-                summary.stopped = "no judge left (each one's quota ran out or it kept failing)"
-                summary.upstream_calls = upstream()
-                return summary
+                return stop("no judge left (each one's quota ran out or it kept failing)")
             if upstream() >= max_calls:
-                summary.stopped = f"call cap of {max_calls} reached"
-                summary.upstream_calls = upstream()
-                return summary
+                return stop(f"call cap of {max_calls} reached")
             if max_usd is not None and summary.spent_usd >= max_usd:
-                summary.stopped = f"spend cap of ${max_usd:.2f} reached"
-                summary.upstream_calls = upstream()
-                return summary
+                return stop(f"spend cap of ${max_usd:.2f} reached")
             slot = slots[current]
             if last_call is not None and slot.pace_s > 0:
                 wait = slot.pace_s - (clock() - last_call)

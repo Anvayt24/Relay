@@ -1,27 +1,28 @@
-"""Route cards: what the evidence says about one comparison, per cohort (PRD §10.8).
+"""Route cards: what the evidence says about one comparison, per cohort.
 
 A card answers "is the candidate good enough?" for one comparison on one route:
 
 - ``cheap_vs_strong``: answers the router sent cheap, against the strong model;
 - ``fallback:<src>-><dst>``: a fallback edge's target, against a healthy primary;
 - ``band:<lo>-<hi>``: the cheap model on the strong-routed requests whose router score is in
-  the band a lower threshold would move (the only evidence for a promotion, §10.2 item 5);
-- ``canary:<version>``: answers served under a canary bundle (Phase 13).
+  the band a lower threshold would move (the only evidence for a promotion);
+- ``canary:<version>``: answers served under a canary bundle.
 
 **How a card is computed** (``compute_cards``):
 
-1. One judge only: pairs from other judge models or prompt versions are excluded (ADR 0014).
-2. Judge calibration: the M7 gate (kappa >= 0.6 and loss recall >= 0.7 on >= 50 human labels,
-   ``calibrate.py``) and n_human >= 50 for this comparison, else the card is ``uncalibrated``.
-   The rectifier is ``stale`` when its newest human label is too old (ADR 0021).
+1. One judge only: pairs from other judge models or prompt versions are excluded.
+2. Judge calibration: the calibration gate (kappa >= 0.6 and loss recall >= 0.7 on >= 50
+   human labels, ``calibrate.py``) and n_human >= 50 for this comparison, else the card is
+   ``uncalibrated``.
+   The rectifier is ``stale`` when its newest human label is too old.
 3. Looks: the decision uses the first ``look * every`` judged pairs in time order, and a
-   decided state changes only when a new look is reached (ADR 0019).
+   decided state changes only when a new look is reached.
 4. Estimate: PPI++ per cohort, with the **pooled** rectifier (all human labels of the
-   comparison) and that cohort's judge-only pairs (ADR 0021). Small cohorts merge into
-   ``other``; the ``all`` card covers everything.
+   comparison) and that cohort's judge-only pairs. Small cohorts merge into ``other``; the
+   ``all`` card covers everything.
 5. Decision at the look's alpha: Holm across cohorts for ``safe``, Benjamini-Hochberg for
-   ``unsafe`` (ADR 0020). The ``all`` card is tested on its own.
-6. Action (§10.7): disable an unsafe edge, roll back an unsafe canary, recommend promoting a
+   ``unsafe``. The ``all`` card is tested on its own.
+6. Action: disable an unsafe edge, roll back an unsafe canary, recommend promoting a
    band only when every cohort is safe. Nothing automatic when uncalibrated or stale.
 
 Labels here are "win or tie" = 1 (``w`` is the win-or-tie rate), unlike the calibration
@@ -133,8 +134,8 @@ class RouteCard:
 
 
 def calibration_by_judge(pairs: Iterable[JudgedPair]) -> dict[str, JudgeCalibration]:
-    """The M7 numbers per judge, from every human-labeled pair it judged (any comparison:
-    calibration is a property of the judge, not of one route)."""
+    """The calibration numbers per judge, from every human-labeled pair it judged (any
+    comparison: calibration is a property of the judge, not of one route)."""
     human: dict[str, list[bool]] = {}
     judge: dict[str, list[bool]] = {}
     for p in pairs:
@@ -219,7 +220,7 @@ def _comparison_cards(
     # Non-decision states first: they hold whatever the data says, at any time.
     blocked: tuple[State, str] | None = None
     if cal is None or not cal.calibrated:
-        blocked = ("uncalibrated", "judge has not passed the M7 gate")
+        blocked = ("uncalibrated", "judge not calibrated against human labels yet")
     elif len(labeled) < stats.MIN_PPI_LABELED:
         blocked = ("uncalibrated", f"needs {stats.MIN_PPI_LABELED} human labels")
     else:
@@ -320,7 +321,7 @@ def _estimate(
 
 
 def _cohorts(pairs: Sequence[JudgedPair], min_n: int) -> dict[str, list[JudgedPair]]:
-    """Cohort -> pairs, with every cohort below ``min_n`` merged into ``other`` (§10.6)."""
+    """Cohort -> pairs, with every cohort below ``min_n`` merged into ``other``."""
     by: dict[str, list[JudgedPair]] = {}
     for p in pairs:
         by.setdefault(p.cohort, []).append(p)
@@ -331,7 +332,7 @@ def _cohorts(pairs: Sequence[JudgedPair], min_n: int) -> dict[str, list[JudgedPa
 
 
 def pooling_failures(labeled: Sequence[JudgedPair], alpha: float) -> set[str]:
-    """Cohorts whose judge bias differs from the rest (ADR 0021): a two-sample z-test of the
+    """Cohorts whose judge bias differs from the rest: a two-sample z-test of the
     mean residual y - f, only where a cohort has >= 50 human labels, Holm-adjusted."""
     residual = {
         p.pair_id: float(p.human_label != "loss") - float(p.judge_label != "loss") for p in labeled
@@ -410,7 +411,7 @@ def _decided_card(
         )
     ):
         # Same look as last time: the decision was already taken on this data. New human
-        # labels must not turn one look into two (ADR 0019).
+        # labels must not turn one look into two.
         state, reason = prev.state, prev.reason
     needed = None
     if state == "undecided":
@@ -434,9 +435,14 @@ def _decided_card(
     )
 
 
+def comparison_kind(comparison: str) -> str:
+    """``canary:v2`` -> ``canary``, ``band:0.5-0.7`` -> ``band``; a bare kind is itself."""
+    return comparison.split(":", 1)[0]
+
+
 def action(comparison: str, state: State, promotable: bool) -> str:
-    """§10.7, as a pure function of the comparison kind and the state."""
-    kind = comparison.split(":", 1)[0]
+    """The card's action, as a pure function of the comparison kind and the state."""
+    kind = comparison_kind(comparison)
     if state in ("uncalibrated", "stale"):
         return "none"
     if state == "undecided":
@@ -449,9 +455,7 @@ def action(comparison: str, state: State, promotable: bool) -> str:
             "cheap_vs_strong": "raise_threshold",
         }.get(kind, "alert")
     # safe
-    if kind == "band":
-        return "promote" if promotable else "collect_more"
-    if kind == "canary":
+    if kind in ("band", "canary"):
         return "promote" if promotable else "collect_more"
     return "none"
 

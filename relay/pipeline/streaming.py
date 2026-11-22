@@ -1,4 +1,4 @@
-"""Priming a stream: deciding *when* Relay commits to it (PRD FR-5, "first byte").
+"""Priming a stream: deciding *when* Relay commits to it (the "first byte").
 
 HTTP sends the status line and headers before any body bytes. Once ``200 OK`` is out, the
 client can't be told "actually that failed, here's a 503". So the moment Relay sends its first
@@ -7,7 +7,7 @@ body byte, it is committed to this upstream.
 ``prime()`` therefore pulls upstream chunks *without sending anything* until the first chunk
 that carries text, and buffers the role-only chunk that comes before it. Until then:
 - a failure is still an ordinary HTTP error;
-- Phase 7 can transparently try another provider;
+- the reliability layer can transparently try another provider;
 - the ``X-Relay-Provider``/``X-Relay-Model`` headers, sent with the commit, name the provider
   that actually answered.
 

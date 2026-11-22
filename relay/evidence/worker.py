@@ -1,4 +1,4 @@
-"""The evidence worker: judged pairs in, route cards and actions out (PRD FR-10; ADR 0019).
+"""The evidence worker: judged pairs in, route cards and actions out.
 
     python -m relay.evidence.worker run [--once] [--interval 30]   # needs RELAY_DATABASE_URL
     python -m relay.evidence.worker show [--route R] [--json]
@@ -11,13 +11,13 @@ Each run:
 0. deletes the prompt and response text of pairs past their tenant's ``retention_days``;
 1. loads every pair with its first human label (pairs without a route, such as the pilot's
    and public calibration sets, calibrate the judge);
-2. computes the judge's M7 numbers per judge model and prompt version;
+2. computes the judge's calibration numbers per judge model and prompt version;
 3. computes cards for every route with an ``evidence:`` section, at pre-registered looks,
    given the previous cards (a decided state changes only at a new look);
 4. saves them (replacing the previous set), and hands every card with a loud **action** to
-   ``on_action`` (§10.7). ``disable_edge`` takes effect by itself (the card board turns the
-   edge unsafe on every replica); ``rollback`` rolls the canary back (Phase 13); promotions
-   are only ever recommended (ADR 0022). Actions are counted and logged when a card changes.
+   ``on_action``. ``disable_edge`` takes effect by itself (the card board turns the edge
+   unsafe on every replica); ``rollback`` rolls the canary back; promotions are only ever
+   recommended. Actions are counted and logged when a card changes.
 
 **Actions are re-applied on every run, not only on a change** (found in review). The cards are
 saved before their actions run, so a crash or a failing hook in between used to lose the
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 ACTIONS = Counter(
     "relay_evidence_actions_total",
-    "Card actions taken or recommended when a card changed (§10.7).",
+    "Card actions taken or recommended when a card changed.",
     ["route", "action"],
 )
 # Actions the worker reports; "none" and "collect_more" are the quiet states.
@@ -81,7 +81,7 @@ async def run_once(
     on_action: ActionHook | None = None,
 ) -> list[RouteCard]:
     now = now or datetime.now(UTC)
-    # Privacy first: text past its tenant's retention is deleted on every run (PRD §8).
+    # Privacy first: text past its tenant's retention is deleted on every run.
     purged = await store.purge_expired_text(now)
     if purged:
         logger.info("deleted the text of %d pairs past their retention", purged)
@@ -145,7 +145,7 @@ async def _main(args: argparse.Namespace, settings: Settings) -> int:
     policies = PostgresPolicyStore(settings.database_url)
     await store.start()
     await policies.start()
-    # The one automatic policy action: an unsafe canary is rolled back (§10.7, ADR 0024).
+    # The one automatic policy action: an unsafe canary is rolled back.
     on_action = rollback_unsafe_canary(policies)
     try:
         if args.command == "show":

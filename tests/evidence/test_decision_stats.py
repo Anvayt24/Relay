@@ -1,4 +1,4 @@
-"""The statistics the evidence engine decides with (ADRs 0019, 0020): PPI from counts, the
+"""The statistics the evidence engine decides with: PPI from counts, the
 bootstrap interval, one-sided p-values against a floor, Holm, Benjamini-Hochberg and the
 "needs N more" power estimate."""
 
@@ -144,7 +144,7 @@ def test_samples_needed_is_monotone_in_the_gap(est: float, se: float, n: int) ->
 
 def test_a_fixed_lambda_of_one_is_classic_ppi() -> None:
     # theta = mean(judge on unlabeled) + mean(human - judge on labeled): it follows the judge
-    # fully, which the M5 monitor needs when the population moves away from the labels.
+    # fully, which the drift-detection monitor needs when the population moves away from the labels.
     theta, _, lam = stats.ppi_from_counts(80, 5, 10, 5, 850, 1000, lam=1.0)
     assert float(lam) == 1.0
     assert float(theta) == pytest.approx(0.85 + (85 / 100 - 90 / 100))

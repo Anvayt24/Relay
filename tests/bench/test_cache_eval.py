@@ -49,7 +49,7 @@ def test_the_frozen_data_is_what_the_manifest_says() -> None:
     manifest = json.loads((evaluate.HERE / "manifest.json").read_text(encoding="utf-8"))
     for name, digest in manifest["sha256"].items():
         assert hashlib.sha256((evaluate.HERE / name).read_bytes()).hexdigest() == digest
-    assert manifest["pairs"] >= 1500  # PRD FR-6: roughly 1,500+ labeled pairs
+    assert manifest["pairs"] >= 1500  # roughly 1,500+ labeled pairs
 
 
 def test_no_prompt_or_fact_is_on_both_sides_of_the_split() -> None:
@@ -63,7 +63,7 @@ def test_no_prompt_or_fact_is_on_both_sides_of_the_split() -> None:
 def test_the_chosen_threshold_reaches_the_target_on_test() -> None:
     metrics = json.loads(METRICS.read_text(encoding="utf-8"))
     test = metrics["guard_on"]["test"]
-    assert test["precision"] >= evaluate.TARGET_PRECISION  # M3: point estimate >= 99%
+    assert test["precision"] >= evaluate.TARGET_PRECISION  # point estimate >= 99%
     assert not math.isnan(test["precision_lower_95"])
 
 

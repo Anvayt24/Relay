@@ -1,4 +1,4 @@
-"""Request cost (PRD FR-9): integer **nano-USD**, computed from provider-reported usage.
+"""Request cost: integer **nano-USD**, computed from provider-reported usage.
 
 Why integers: money that is summed millions of times must not drift. In floats,
 ``0.1 + 0.2 != 0.3``; summed over a day of requests, a budget check can be off in either
@@ -14,7 +14,7 @@ Three costs per request:
 - ``billed``: what is actually charged: list, or 0 for a ``billing: free`` model.
 - ``counterfactual_strong``: the same usage priced on the route's strong model, an estimate
   of "what always-strong would have cost". The strong model's real output length is unknown,
-  so this assumes the same length (ratio 1.0, FR-9) and is labelled an estimate wherever shown.
+  so this assumes the same length (ratio 1.0) and is labelled an estimate wherever shown.
 """
 
 import math

@@ -1,5 +1,4 @@
-"""The one automatic policy action: roll back a canary whose card says unsafe (PRD §10.7;
-ADRs 0022, 0024).
+"""The one automatic policy action: roll back a canary whose card says unsafe.
 
 The evidence worker calls this for every card whose recommended action just became
 ``rollback``. It only acts if that exact version is *still* the running canary: an operator may

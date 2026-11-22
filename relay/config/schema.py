@@ -94,7 +94,7 @@ class EvidenceSpec(BaseModel):
     # out before the verdict and abstains.
     judge_max_tokens: int = Field(default=16, gt=0)
     # One judge = one model plus one rubric version (evals/judge/public/DECISION_RULE.md): the
-    # M7 calibration is measured for that pair and for no other. v2 asks for a one-line reason
+    # judge calibration is measured for that pair and for no other. v2 asks for a one-line reason
     # before the verdict (and stores it). Routes that share a judge model and output cap must
     # agree on both settings below.
     judge_prompt_version: Literal["v1", "v2"] = "v1"

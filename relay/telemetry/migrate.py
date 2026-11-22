@@ -1,4 +1,4 @@
-"""A deliberately small schema migrator: plain SQL files applied in order (ADR 0003).
+"""A deliberately small schema migrator: plain SQL files applied in order.
 
     python -m relay.telemetry.migrate     # or: make migrate
 

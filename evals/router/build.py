@@ -2,7 +2,7 @@
 
     python -m evals.router.build            # needs the embedding model (a one-time download)
 
-Steps (PRD FR-7 "Data splits"):
+Steps:
 1. generate ~3,000 prompts from the world (``world.py``) and give each its truth and its noisy
    judge label;
 2. embed every prompt with bge-small;
@@ -15,7 +15,7 @@ Steps (PRD FR-7 "Data splits"):
    the human), disjoint from the judge-only prompts.
 
 Rebuild only to change the data; then re-run ``make train-router`` and ``make eval-router`` and
-commit the artifact and ``metrics.json`` (CLAUDE.md: a router change re-runs the eval).
+commit the artifact and ``metrics.json`` (a router change re-runs the eval).
 """
 
 import argparse
@@ -135,7 +135,7 @@ async def build(seed: int) -> None:
         rows,
         vectors,
         {
-            "world": "simulated, difficulty fixed in docs/adr/0018 before any router was trained",
+            "world": "simulated, difficulty fixed before any router was trained",
             "seed": seed,
             "embedding_model": MODEL_NAME,
             "fastembed_version": importlib.metadata.version("fastembed"),

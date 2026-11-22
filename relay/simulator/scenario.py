@@ -7,9 +7,9 @@ infeasible quality target fails before any traffic is sent, not halfway through 
 Two clocks drive a scenario, on purpose:
 - **Request index (logical time)** drives quality shifts. These are reproducible exactly.
 - **Wall-clock seconds since the first request** drive ``Incident`` windows and capacity
-  refill. Chaos is about time ("the provider is down from t=30 s to t=60 s"), and the PRD
-  accepts that this part is not deterministic under concurrency. That is why chaos results
-  are reported as mean ± spread over ≥ 5 runs (§11.1).
+  refill. Chaos is about time ("the provider is down from t=30 s to t=60 s"), and this part
+  is accepted as not deterministic under concurrency. That is why chaos results are reported
+  as mean ± spread over ≥ 5 runs.
 """
 
 import math
@@ -132,7 +132,7 @@ NO_ERRORS = ErrorMix()
 class Capacity:
     """Rate limits per simulated API key, refilled continuously (a token bucket).
 
-    ``scope`` mirrors real providers, and it matters for Relay's pause logic in Phase 6:
+    ``scope`` mirrors real providers, and it matters for Relay's pause logic:
     - ``"account"``: one budget per key, shared by every model (most providers).
     - ``"model"``: a separate budget per (key, model), as Groq does.
     Pausing the wrong scope either keeps hitting the limit or idles healthy models.
@@ -153,7 +153,7 @@ class Capacity:
 @dataclass(frozen=True)
 class Incident:
     """A scheduled wall-clock window that overrides behavior: the building block of every
-    chaos scenario (PRD §11.2, E-C). Times are seconds since the simulator's first request.
+    chaos scenario. Times are seconds since the simulator's first request.
 
     - Hard outage:     ``errors=ErrorMix(server_error=1.0)``
     - 429 storm:       ``errors=ErrorMix(rate_limited=0.8)``
@@ -250,7 +250,7 @@ PRESETS: dict[str, Scenario] = {
     # Instant and flawless: for runs where only the plumbing matters.
     "ideal": Scenario(models={STRONG: ModelProfile(), CHEAP: ModelProfile()}),
     # Plausible numbers for a demo or a smoke test. They are illustrative, not measured from
-    # any real provider (PRD §13: label simulator results as such).
+    # any real provider (simulator results are labelled as such).
     "realistic": Scenario(
         models={
             STRONG: ModelProfile(

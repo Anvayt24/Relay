@@ -1,4 +1,4 @@
-"""The Stage protocol and its result types (PRD §9.3).
+"""The Stage protocol and its result types.
 
 A request is handled by an ordered list of stages, for example
 log → admission → cache → route → reservation → provider (authentication runs before them,

@@ -1,4 +1,4 @@
-"""FR-4: the USD hold covers the most expensive model the request might fall back to."""
+"""The USD hold covers the most expensive model the request might fall back to."""
 
 from relay.admission.stages import ReservationStage
 from relay.admission.store import MemoryStore

@@ -1,4 +1,4 @@
-"""PRD Appendix B as data: what Relay does about each upstream error class.
+"""The upstream error policy as data: what Relay does about each upstream error class.
 
 The table is code-reviewed in one place instead of being scattered across ``if`` statements.
 The dispatcher asks three questions about each failure:
@@ -13,7 +13,7 @@ The dispatcher asks three questions about each failure:
    would launder the refusal.
 3. Count toward the circuit breaker? Only signs of an unhealthy upstream. 429s are excluded:
    the shared pause state handles them, and counting them too would mean two mechanisms
-   reacting to one signal (FR-5).
+   reacting to one signal.
 """
 
 from relay.schemas.errors import ErrorClass

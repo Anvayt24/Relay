@@ -1,7 +1,7 @@
 """Deterministic randomness: every random draw in the simulator comes from this module.
 
-PRD §11.1: "each request's outcome is seeded by (seed, request index)". This module is what
-makes that true, and the design has three deliberate choices:
+Each request's outcome is seeded by (seed, request index). This module is what makes that
+true, and the design has three deliberate choices:
 
 1. **A fresh generator per (seed, index, model, purpose)**, instead of one shared generator.
    With a shared generator, request 7's draws depend on how many draws requests 0-6 made, so
@@ -41,7 +41,7 @@ def uniform_for(seed: int, *keys: str | int) -> float:
     """One uniform draw in [0, 1), straight from the hash (~4 µs, no generator).
 
     A good hash's output bits are already uniformly distributed, so for a single draw a full
-    PRNG adds nothing but cost. This matters for the evidence simulations (Phase 12), which
+    PRNG adds nothing but cost. This matters for the evidence simulations, which
     draw correctness and judge verdicts millions of times. The top 53 bits are used because
     a float's mantissa holds exactly 53, which is what ``random.random()`` does too.
     """

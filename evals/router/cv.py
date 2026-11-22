@@ -75,12 +75,13 @@ def main() -> None:
     point, lo, hi = auc_ci(ranks, y)
     print(f"length only      AUC {point:.3f}  (95% CI {lo:.3f}-{hi:.3f})")
     out = data_mod.HERE / args.world / "cv.json"
-    data_mod.write_text(
-        out,
+    out.write_text(
         json.dumps(
             {"folds": N_FOLDS, "n": len(y), "by_C": rows, "length_only_auc": round(point, 4)},
             indent=2,
         ),
+        encoding="utf-8",
+        newline="\n",
     )
     print(f"wrote {out.name}")
 

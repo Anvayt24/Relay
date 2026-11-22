@@ -1,8 +1,8 @@
-"""Chaos metrics: pure functions over per-request results (PRD E-C, M2, FR-4).
+"""Chaos metrics: pure functions over per-request results.
 
-Definitions, fixed in ADR 0012 so a number always means the same thing:
+Definitions, fixed so a number always means the same thing:
 
-- **Success (M2):** the client received a complete 2xx. A stream must end with ``[DONE]`` and
+- **Success:** the client received a complete 2xx. A stream must end with ``[DONE]`` and
   carry no error event. Relay's own 429/503 and mid-stream failures are failures. A response
   served through an un-evidenced edge counts as a success and is also counted as *degraded*.
 - **Retry amplification:** upstream calls ÷ client requests, measured at the simulator (where
@@ -12,7 +12,7 @@ Definitions, fixed in ADR 0012 so a number always means the same thing:
   upstream never saw more than the clients offered; a large number means retries piled up
   into a spike. Relative to the offered rate, not to the window's own mean, because a breaker
   that quiets the upstream would otherwise make a single probe look like a huge spike. This is
-  FR-4's "no synchronized retry spike", made a number.
+  "no synchronized retry spike", made a number.
 """
 
 import math
@@ -25,11 +25,9 @@ from dataclasses import dataclass
 class Result:
     ok: bool
     latency_s: float
-    status: int = 0
     degraded: bool = False
     # A stream that ended with neither [DONE] nor an error event: a silently cut answer.
     silent_truncation: bool = False
-    stream: bool = False
     # Which upstream answered and its ground-truth index, for correctness lookups.
     served_by: str | None = None
     index: int | None = None
@@ -75,7 +73,7 @@ def burstiness(
 
 
 def mean_and_spread(values: Sequence[float]) -> tuple[float, float]:
-    """Mean and sample standard deviation over runs (§11.1: chaos numbers are reported as
+    """Mean and sample standard deviation over runs (chaos numbers are reported as
     mean ± spread over >= 5 runs, because event interleaving is not deterministic)."""
     clean = [v for v in values if not math.isnan(v)]
     if not clean:

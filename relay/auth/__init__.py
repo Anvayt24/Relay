@@ -1,1 +1,1 @@
-"""API-key authentication (PRD FR-3). Start with keys.py, then store.py and service.py."""
+"""API-key authentication. Start with keys.py, then store.py and service.py."""

@@ -1,4 +1,4 @@
-"""Real-world sanity check of the online evidence path (PRD §10.9 item 4). NON-REPRODUCIBLE.
+"""Real-world sanity check of the online evidence path. NON-REPRODUCIBLE.
 
     python -m evals.evidence.real_check --provider groq --cheap openai/gpt-oss-20b
         --strong openai/gpt-oss-120b --n 30
@@ -31,7 +31,6 @@ import argparse
 import asyncio
 import json
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +41,7 @@ from relay.config.loader import load_config
 from relay.config.schema import RelayConfig
 from relay.evidence import worker
 from relay.evidence.cards import ALL, render_markdown
+from relay.evidence.pairs import write_jsonl
 from relay.evidence.store import MemoryEvidenceStore
 from relay.providers.base import ProviderAdapter
 from relay.providers.registry import ProviderKeys, build_adapters
@@ -51,7 +51,7 @@ from relay.settings import Settings
 from relay.telemetry.log_writer import MemorySink
 
 HERE = Path(__file__).parent
-PROMPTS = Path("evals/router/real/prompts_raw.jsonl")  # public Dolly prompts (Phase 11)
+PROMPTS = Path("evals/router/real/prompts_raw.jsonl")  # public Dolly prompts
 CALLS_PER_REQUEST = 3  # the answer, the shadow answer, the judge
 
 
@@ -182,11 +182,10 @@ async def run(args: argparse.Namespace, prompts: list[str], out: Path) -> int:
                     break
                 await asyncio.sleep(args.pace_s)
     cards = await worker.run_once(store, config)
-    _write(out / "pairs.jsonl", "".join(
-        json.dumps({**asdict(p), "ts": p.ts.isoformat()}, ensure_ascii=False) + "\n"
-        for p in store.pairs
-    ))  # fmt: skip
-    _write(out / "cards.json", json.dumps([c.as_dict() for c in cards], indent=2) + "\n")
+    write_jsonl(store.pairs, out / "pairs.jsonl")
+    (out / "cards.json").write_text(
+        json.dumps([c.as_dict() for c in cards], indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     labels = [p.judge_label for p in store.pairs]
     card = next((c for c in cards if c.cohort == ALL), None)
     report = [
@@ -212,14 +211,9 @@ async def run(args: argparse.Namespace, prompts: list[str], out: Path) -> int:
         render_markdown(cards),
         "",
     ]
-    _write(out / "real_check.md", "\n".join(report))
+    (out / "real_check.md").write_text("\n".join(report), encoding="utf-8", newline="\n")
     print("\n".join(report))
     return 0
-
-
-def _write(path: Path, text: str) -> None:
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
 
 
 def main() -> None:

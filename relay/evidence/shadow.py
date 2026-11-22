@@ -1,5 +1,5 @@
 """Shadow sampling: judged pairs from live traffic, gathered without delaying the user's
-answer (PRD §10.2; ADR 0022).
+answer.
 
     Log → [Shadow] → Admission → Cache → Route → Reservation → Provider
 
@@ -44,6 +44,7 @@ from relay.config.models import ModelSpec
 from relay.config.pricing import NANO_PER_USD, list_cost_nano
 from relay.config.schema import EvidenceSpec, RouteSpec
 from relay.evidence.board import CardBoard, fallback_comparison
+from relay.evidence.cards import comparison_kind
 from relay.evidence.cohorts import cohort_of
 from relay.evidence.judge import Judge
 from relay.evidence.pairs import EvalPair, prompt_hash
@@ -84,10 +85,6 @@ class Job:
     call: str  # which of the two is the extra (shadow) call; the other already answered
 
 
-def comparison_kind(comparison: str) -> str:
-    return comparison.split(":", 1)[0]
-
-
 def band_comparison(lo: float, hi: float) -> str:
     return f"band:{lo:g}-{hi:g}"
 
@@ -103,7 +100,7 @@ def jobs_for(ctx: RequestContext, route: RouteSpec, spec: EvidenceSpec) -> list[
     jobs = []
     if cheap and strong and served.model == cheap and cheap != strong:
         # In a canary's arm the cheap answer was chosen by the candidate bundle: its evidence
-        # is the canary's card (Phase 13), and it decides the canary's fate.
+        # is the canary's card, and it decides the canary's fate.
         version = ctx.applied.version
         canary = ctx.canary_arm == "canary" and version is not None
         comparison = f"canary:{version}" if canary else "cheap_vs_strong"
@@ -124,9 +121,10 @@ def jobs_for(ctx: RequestContext, route: RouteSpec, spec: EvidenceSpec) -> list[
         and route.router is not None
         and cheap
         and served.model == strong
-        and ctx.router_reason == "router"
-        and ctx.router_score is not None
-        and spec.band_lo <= ctx.router_score < route.router.threshold
+        and ctx.decision is not None
+        and ctx.decision.reason == "router"
+        and ctx.decision.score is not None
+        and spec.band_lo <= ctx.decision.score < route.router.threshold
     ):
         jobs.append(
             Job(
@@ -172,7 +170,7 @@ class ShadowStage:
         self._pending: set[asyncio.Task[None]] = set()
 
     def reseed(self, seed: int) -> None:
-        """Make sampling reproducible (the M8 cost experiment)."""
+        """Make sampling reproducible (the shadow cost experiment)."""
         self._rng = random.Random(seed)
 
     def bind(self, call: ShadowCall, available: Availability) -> None:
@@ -219,7 +217,7 @@ class ShadowStage:
         return spec.sample_rate_decided if state in ("safe", "unsafe") else spec.sample_rate
 
     def _allowed(self, ctx: RequestContext, *models: str) -> bool:
-        # allowed_providers is a privacy rule (§10.2 item 6): the prompt may only reach these.
+        # allowed_providers is a privacy rule: the prompt may only reach these.
         for name in models:
             spec = self._models.get(name)
             if spec is None or not ctx.tenant.allows(name, spec.provider):

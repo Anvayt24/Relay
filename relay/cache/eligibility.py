@@ -1,11 +1,11 @@
-"""Which requests may use the cache at all (PRD FR-6 "Eligibility").
+"""Which requests may use the cache at all.
 
 Caching an answer is only correct when the same request would get the same answer, so the
 rules are conservative:
 
 - ``temperature == 0``. Sampling at temperature > 0 is *meant* to vary. An *unset* temperature
   is not eligible unless the tenant opts in, because OpenAI's default is 1, not 0.
-- no tools (rejected at P0 anyway, kept explicit), ``n == 1``;
+- no tools (the request schema rejects them anyway, kept explicit), ``n == 1``;
 - the prompt is not too large (a huge prompt is a poor cache candidate and a big stored value);
 - the client didn't say ``X-Relay-Cache: no-store``.
 

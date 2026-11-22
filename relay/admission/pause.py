@@ -1,11 +1,11 @@
-"""The shared provider pause (PRD FR-4: "shared capacity state").
+"""The shared provider pause: capacity state that every replica sees.
 
 When a provider answers 429, every replica should stop calling that limit, not just the one
 that got the 429. Otherwise N replicas each discover the limit separately, and the provider
 sees N times the traffic it just refused. So a 429 writes a pause key, with a TTL, that all
 replicas check before calling.
 
-**Scope: exactly the limit that was hit, never wider** (FR-4).
+**Scope: exactly the limit that was hit, never wider.**
 - The limit's scope comes from the 429's signal, or else from the provider's config.
 - ``model`` scope pauses only ``provider + model``: Groq limits each model separately, so a
   429 on one model must not idle the others.
@@ -15,7 +15,7 @@ replicas check before calling.
 **Duration:** the provider's ``Retry-After`` if it sent one (1 s otherwise; 1 h for a quota
 with no reset given), then x U(1.0, 1.2). That **jitter** is the point: without it, every
 replica resumes at the same instant, and a synchronized burst arrives exactly when the limit
-reopens, the "thundering herd" that triggers the next 429 (FR-4: "resume uses jitter").
+reopens, the "thundering herd" that triggers the next 429.
 """
 
 import random
@@ -60,7 +60,7 @@ class PauseState:
 
     async def record(self, provider: str, upstream_model: str, err: ProviderError) -> None:
         if err.error_class not in (ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED):
-            return  # only limits pause; 5xx are the circuit breaker's job (Phase 7)
+            return  # only limits pause; 5xx are the circuit breaker's job
         signal = err.signal
         scope = (signal.limit_scope if signal else None) or self._config.providers[
             provider

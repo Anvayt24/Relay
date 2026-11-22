@@ -36,6 +36,17 @@ def pepper_fingerprint(pepper: str) -> str:
     return hmac.new(pepper.encode(), b"relay-pepper-check", hashlib.sha256).hexdigest()
 
 
+async def insert_key(conn: asyncpg.Connection, key: str, pepper: str, tenant: str) -> None:
+    """Store a new key for `tenant`: only its HMAC and its display prefix, never the key.
+    Shared by the first-run key and the admin CLI's create-key."""
+    await conn.execute(
+        "INSERT INTO api_keys (key_hash, key_prefix, tenant) VALUES ($1, $2, $3)",
+        hash_key(key, pepper),
+        display_prefix(key),
+        tenant,
+    )
+
+
 async def ensure_first_key(
     dsn: str, *, pepper: str, tenant: str, pepper_is_new: bool, mint: bool
 ) -> str | None:
@@ -76,12 +87,7 @@ async def ensure_first_key(
             if existing or not mint:
                 return None
             key = generate_key()
-            await conn.execute(
-                "INSERT INTO api_keys (key_hash, key_prefix, tenant) VALUES ($1, $2, $3)",
-                hash_key(key, pepper),
-                display_prefix(key),
-                tenant,
-            )
+            await insert_key(conn, key, pepper, tenant)
             return key
     finally:
         await conn.close()

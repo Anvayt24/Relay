@@ -1,5 +1,5 @@
 description: >-
-  The same 30 s outage, but the fallback edge has no evidence yet (undecided) and the tenant is strict. Relay must refuse to fail over (FR-5): this is the documented cold-start behavior, not a bug. It is shown so nobody mistakes 503s here for a regression.
+  The same 30 s outage, but the fallback edge has no evidence yet (undecided) and the tenant is strict. Relay must refuse to fail over: this is the documented cold-start behavior, not a bug. It is shown so nobody mistakes 503s here for a regression.
 duration_s: 60
 smoke_duration_s: 12
 rps: 20

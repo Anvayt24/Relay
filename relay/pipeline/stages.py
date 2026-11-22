@@ -36,7 +36,7 @@ SHADOW_DECISIONS = Counter(
 
 
 class LogStage:
-    """Writes one request-log row per request (FR-8).
+    """Writes one request-log row per request.
 
     It is the *first* stage, so its finalize runs *last*. By then every other stage has
     finalized, and the context holds the final decision, attempts, usage and outcome. Its
@@ -54,8 +54,8 @@ class LogStage:
     async def finalize(self, ctx: RequestContext, outcome: Outcome) -> None:
         # enqueue() is synchronous and O(1); the database write happens later, elsewhere.
         self._writer.enqueue(row_from_context(ctx, outcome))
-        # Phase 14: the request-level metrics and the trace's outcome attributes, from the
-        # same finished context as the log row (ADR 0025).
+        # The request-level metrics and the trace's outcome attributes, from the same
+        # finished context as the log row.
         record_request(ctx, outcome, time.monotonic() - ctx.started_at)
         tracing.annotate(ctx, outcome)
 
@@ -109,8 +109,8 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
         degraded=ctx.degraded,
         policy_version=ctx.policy_version,
         cache_status=ctx.cache.status if ctx.cache else None,
-        router_reason=ctx.router_reason,
-        router_score=ctx.router_score,
+        router_reason=decision.reason if decision else None,
+        router_score=decision.score if decision else None,
         canary_arm=ctx.canary_arm,
         shadow_policy_version=ctx.shadow_policy_version,
         shadow_tier=ctx.shadow_tier,
@@ -133,10 +133,10 @@ def row_from_context(ctx: RequestContext, outcome: Outcome) -> LogRow:
 
 
 class RouteStage:
-    """Asks the router for a model, then enforces the tenant's rules on it (FR-3).
+    """Asks the router for a model, then enforces the tenant's rules on it.
 
     The router answers "which model?"; this stage answers "may *this tenant* use it?". Keeping
-    the two apart means a trained router (Phase 11) never has to know about tenants, and a
+    the two apart means a trained router never has to know about tenants, and a
     tenant rule can't be bypassed by a router change.
     """
 
@@ -147,7 +147,7 @@ class RouteStage:
         self._shadow: dict[int, asyncio.Task[None]] = {}
 
     async def process(self, ctx: RequestContext) -> StageResult:
-        # The router of the policy serving this request (Phase 13: the YAML one, or a bundle's).
+        # The router of the policy serving this request (the YAML one, or a bundle's).
         try:
             decision = await ctx.applied.router.decide(ctx.request, ctx)
         except RelayError as e:
@@ -159,13 +159,11 @@ class RouteStage:
             return Reject(model_not_found(ctx.request.model))
         ctx.decision = decision
         # The policy of record. With a policy bundle applied it is the bundle's version, set
-        # when the request arrived (ADR 0023). Without one, the policy that decided: the
+        # when the request arrived. Without one, the policy that decided: the
         # request's version was set before routing (to the static policy), so without this a
         # router's version would never reach the log row or a cache entry.
         if ctx.applied.version is None:
             ctx.policy_version = decision.policy_version
-        ctx.router_reason = decision.reason
-        ctx.router_score = decision.score
         shadow = ctx.policy.shadow() if ctx.policy is not None else None
         if shadow is not None:
             # Off the request's path: it runs while the provider answers and is collected in
@@ -179,7 +177,7 @@ class RouteStage:
     async def _shadow_decision(
         self, ctx: RequestContext, router: Router, version: str | None
     ) -> None:
-        """Shadow mode (FR-11): the candidate's router decides too; the decision is logged and
+        """Shadow mode: the candidate's router decides too; the decision is logged and
         never applied, and it records no router metrics. A failure here is swallowed: a shadow
         bundle must never change a response."""
         try:
@@ -204,7 +202,7 @@ class ProviderStage:
     """Gets the response from a provider, through the single retry owner.
 
     All the reliability decisions (retries, fallbacks, breakers, deadlines) live in
-    ``relay/reliability/``, not here: one owner for retries is the whole point (FR-5). This
+    ``relay/reliability/``, not here: one owner for retries is the whole point. This
     stage only adapts the dispatcher to the Stage protocol, and reports a stream's outcome to
     the breaker when the stream is over.
     """

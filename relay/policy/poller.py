@@ -1,6 +1,6 @@
-"""Each replica follows the pointer: poll, validate, build, swap (PRD FR-11; ADR 0024).
+"""Each replica follows the pointer: poll, validate, build, swap.
 
-Every ``poll_s`` seconds (default 5, the PRD's config-propagation interval) the poller reads
+Every ``poll_s`` seconds (default 5) the poller reads
 the pointer. When it changed, it fetches the bundles it names, builds them (validation
 included) and swaps the runtime's snapshot. A rollback is therefore live on every replica
 within one poll interval.
@@ -62,15 +62,6 @@ class PolicyPoller:
                 return True
             active = await self._fetch(pointer.active_version)
             candidate = await self._fetch(pointer.candidate_version)
-        except BundleError as e:
-            POLL_ERRORS.labels("invalid_bundle").inc()
-            logger.error("policy not applied (keeping the current one): %s", e)
-            return False
-        except Exception as e:  # a down database must never reach a request
-            POLL_ERRORS.labels("store_unavailable").inc()
-            logger.warning("policy store unavailable (keeping the current policy): %r", e)
-            return False
-        try:
             self._runtime.apply(
                 active,
                 candidate,
@@ -80,6 +71,13 @@ class PolicyPoller:
         except BundleError as e:
             POLL_ERRORS.labels("invalid_bundle").inc()
             logger.error("policy not applied (keeping the current one): %s", e)
+            return False
+        # Anything else (a down database, or an unexpected error while building the snapshot)
+        # must never reach a request, and must not escape: the poll loop has no guard of its
+        # own, so an escaped error would stop this replica from ever refreshing again.
+        except Exception as e:
+            POLL_ERRORS.labels("store_unavailable").inc()
+            logger.warning("policy not refreshed (keeping the current policy): %r", e)
             return False
         self._applied = pointer
         SWAPS.inc()

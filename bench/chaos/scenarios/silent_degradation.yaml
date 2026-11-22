@@ -1,5 +1,5 @@
 description: >-
-  The primary keeps answering 200 but its quality falls from 0.95 to 0.75 halfway through. Nothing in the error rate changes; only ground truth shows it. Relay cannot detect this until the evidence engine (Phase 12), so this scenario is the before picture.
+  The primary keeps answering 200 but its quality falls from 0.95 to 0.75 halfway through. Nothing in the error rate changes; only ground truth shows it. Error-based failover cannot see it; only the evidence engine's judged samples can.
 duration_s: 40
 smoke_duration_s: 10
 rps: 20

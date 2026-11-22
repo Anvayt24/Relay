@@ -1,4 +1,4 @@
-"""Train the router (PRD FR-7; ADR 0017). Offline, with scikit-learn.
+"""Train the router. Offline, with scikit-learn.
 
     python -m evals.router.train                 # make train-router
     python -m evals.router.train --world real
@@ -114,7 +114,7 @@ def main() -> None:
     print(
         f"trained {artifact.version}: C={info['C']}, validation log-loss {info['val_log_loss']:.4f}"
     )
-    print(f"threshold (validation, M4): {info['selection']['threshold']}  -> {out}")
+    print(f"threshold (validation): {info['selection']['threshold']}  -> {out}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""The async request-log writer (PRD FR-8: "logging is never on the hot path").
+"""The async request-log writer ("logging is never on the hot path").
 
 The request path only ever calls ``enqueue(row)``. That is a plain *synchronous* method: it
 puts the row on an in-memory queue and returns in microseconds. A background task drains the
@@ -46,7 +46,7 @@ QUEUE_DEPTH = Gauge("relay_log_queue_depth", "Request log rows waiting to be wri
 
 @dataclass(frozen=True)
 class LogRow:
-    """One row of the ``requests`` table (a subset of PRD §9.4; later phases add columns).
+    """One row of the ``requests`` table.
 
     Field order is the column order used by the Postgres COPY.
     """
@@ -67,21 +67,21 @@ class LogRow:
     tokens_out: int | None
     latency_ms: int
     ttft_ms: int | None
-    # Phase 5 (migration 0002). Money is integer nano-USD: see relay/config/pricing.py.
+    # Cost (migration 0002). Money is integer nano-USD: see relay/config/pricing.py.
     billed_cost_nano_usd: int | None = None
     list_cost_nano_usd: int | None = None
-    counterfactual_strong_nano_usd: int | None = None  # an estimate (FR-9)
+    counterfactual_strong_nano_usd: int | None = None  # an estimate
     price_table_version: str | None = None
-    queue_wait_ms: int = 0  # Phase 6 (migration 0004): time waiting for a concurrency slot
-    # Phase 7 (migration 0005).
+    queue_wait_ms: int = 0  # migration 0004: time waiting for a concurrency slot
+    # Reliability (migration 0005).
     fallback_hops: int = 0
     degraded: bool = False
     policy_version: str | None = None
-    cache_status: str | None = None  # Phase 10 (migration 0007): hit | miss | bypass
-    # Phase 11 (migration 0008): why this model, and the trained router's score when it decided.
+    cache_status: str | None = None  # migration 0007: hit | miss | bypass
+    # Router (migration 0008): why this model, and the trained router's score when it decided.
     router_reason: str | None = None
     router_score: float | None = None
-    # Phase 13 (migration 0010): the canary arm, and the shadow candidate's decision.
+    # Policy (migration 0010): the canary arm, and the shadow candidate's decision.
     canary_arm: str | None = None
     shadow_policy_version: str | None = None
     shadow_tier: str | None = None
@@ -92,7 +92,7 @@ class LogRow:
 
 @dataclass(frozen=True)
 class AttemptRow:
-    """One row of the ``attempts`` table (PRD §9.4): a call or a skip, in order."""
+    """One row of the ``attempts`` table: a call or a skip, in order."""
 
     request_id: str
     hop: int

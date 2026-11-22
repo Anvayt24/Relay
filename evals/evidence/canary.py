@@ -1,4 +1,4 @@
-"""Canary decisions (PRD FR-11, §10.7): is a bad canary rolled back, and a good one recommended?
+"""Canary decisions: is a bad canary rolled back, and a good one recommended?
 
 A canary bundle serves a share of traffic; the shadow stage judges its cheap-routed answers
 against the strong model (comparison ``canary:<version>``); the worker computes that card at
@@ -7,10 +7,10 @@ simulated canaries, look by look, exactly as the worker would:
 
 - a **bad** canary (true w = 0.84, below the 0.90 floor) should be rolled back;
 - a **good** canary (true w = 0.97) should end ``safe`` with ``promote`` recommended, and is
-  never promoted by the engine itself (ADR 0022).
+  never promoted by the engine itself.
 
 Human labels for the canary's comparison (the rectifier) are a small labeled sample of canary
-pairs: PRD §10.4 asks for a label refresh after a policy change, and a canary is one.
+pairs: labels must be refreshed after a policy change, and a canary is one.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -61,7 +61,7 @@ def _pairs(rng: np.random.Generator, w: float, n: int, start: int, human: bool) 
 
 
 def _calibration(rng: np.random.Generator) -> dict[str, Any]:
-    # The judge's M7 numbers from a stratified, loss-rich set (as in practice).
+    # The judge's calibration numbers from a stratified, loss-rich set (as in practice).
     truly_ok = rng.random(400) < 0.7
     verdict_ok = judge_stream(rng, np.where(truly_ok, 1.0, 0.0), JUDGES["good"])
     pairs = [

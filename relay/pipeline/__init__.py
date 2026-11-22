@@ -1,4 +1,4 @@
-"""The request pipeline (PRD §9.1, §9.3). Filled in from Phase 1.
+"""The request pipeline.
 
 Every request runs through an ordered list of stages that implement the ``Stage`` protocol:
 auth -> admission -> cache -> router -> reservation -> provider. Each stage either continues,

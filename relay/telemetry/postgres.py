@@ -1,6 +1,6 @@
 """Postgres sink for request-log rows.
 
-**Relay must start and serve with Postgres down** (PRD §8, degradation matrix). So the pool is
+**Relay must start and serve with Postgres down**. So the pool is
 created with ``min_size=0``: creating it opens no connection, and a database that's down at
 boot costs nothing until the first write. That write fails, the LogWriter backs off, and rows
 are eventually dropped and counted. Requests never notice.
@@ -24,12 +24,12 @@ from relay.telemetry.log_writer import AttemptRow, LogRow
 # `attempts` is a nested tuple on LogRow, written to its own table.
 COLUMNS = [f.name for f in fields(LogRow) if f.name != "attempts"]
 ATTEMPT_COLUMNS = [f.name for f in fields(AttemptRow)]
+COMMAND_TIMEOUT_S = 5.0
 
 
 class PostgresSink:
-    def __init__(self, dsn: str, *, command_timeout_s: float = 5.0) -> None:
+    def __init__(self, dsn: str) -> None:
         self._dsn = dsn
-        self._command_timeout_s = command_timeout_s
         self._pool: asyncpg.Pool | None = None
 
     async def start(self) -> None:
@@ -37,7 +37,7 @@ class PostgresSink:
             self._dsn,
             min_size=0,  # no connection at startup; see the module docstring
             max_size=2,  # one writer task needs one connection; one spare
-            command_timeout=self._command_timeout_s,
+            command_timeout=COMMAND_TIMEOUT_S,
         )
 
     async def close(self) -> None:

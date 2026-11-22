@@ -1,16 +1,16 @@
-"""M6: do nominal 95% PPI intervals really cover the truth 95% of the time? (PRD §10.9 item 2)
+"""Do nominal 95% PPI intervals really cover the truth 95% of the time?
 
 For every cell of a grid (human labels n, judge-only pairs N, true w, judge quality), draw many
 independent datasets from the simulator's model, build the interval each way, and count how
-often it contains the true ``w``. The PRD's target is >= 93% everywhere, *including* the
+often it contains the true ``w``. The target is >= 93% everywhere, *including* the
 regimes where Wald-type intervals are known to struggle: small n and w near 0.95 (few losses,
 so the variance estimate is itself noisy).
 
 Two intervals are compared:
 - **Wald** (PPI++ with the pseudo-count floor, ``relay.evidence.stats.ppi_mean_ci``);
-- **percentile bootstrap** (``ppi_bootstrap_ci``): Appendix A's fallback.
+- **percentile bootstrap** (``ppi_bootstrap_ci``): the fallback.
 
-The result picks the interval the cards use (ADR 0019): Wald if it meets the target in every
+The result picks the interval the cards use: Wald if it meets the target in every
 cell, else the bootstrap if *it* does, else whichever covers more in its worst cell, with the
 shortfall reported, never hidden.
 """

@@ -1,4 +1,4 @@
-"""Candidate planning: order, policy and edge states (FR-5 table; ADRs 0008, 0010, 0011)."""
+"""Candidate planning: order, policy and edge states."""
 
 import pytest
 

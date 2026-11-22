@@ -15,7 +15,7 @@ Each family is a set of paraphrase templates and a set of fact values. A prompt 
 ``template.format(**value)``; an *instance* is one value (the "fact" being asked about).
 Generated, not scraped: no license questions, and any reader can regenerate the data.
 
-Label definition (PRD FR-6): a pair is positive only if the cached response is an acceptable
+Label definition: a pair is positive only if the cached response is an acceptable
 answer to the new prompt. For these families that is exactly "same instance". The labels are
 therefore *constructed*, not human-judged, and the report says so.
 """

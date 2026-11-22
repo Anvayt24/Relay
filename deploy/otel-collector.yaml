@@ -1,5 +1,5 @@
 # OpenTelemetry Collector: receives Relay's spans over OTLP, batches them and forwards them to
-# Tempo (Phase 14). Relay never talks to Tempo directly: swapping the trace backend (Jaeger, a
+# Tempo. Relay never talks to Tempo directly: swapping the trace backend (Jaeger, a
 # vendor) is a change here, not in the gateway. `debug` keeps a one-line summary per batch in
 # the collector's own log, which helps when a trace seems missing.
 receivers:
@@ -7,8 +7,6 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
 
 processors:
   batch: {}

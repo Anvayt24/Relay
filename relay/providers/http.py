@@ -10,7 +10,7 @@ translation.
 import email.utils
 import json
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,7 +24,7 @@ from relay.schemas.errors import ErrorClass, ProviderError, ProviderSignal
 # fails over and feeds the breaker, instead of a 500 the breaker never hears about.
 MALFORMED = (ValueError, KeyError, TypeError, IndexError, AttributeError)
 
-# Errors that say "back off": they carry a signal so admission pauses the right scope (FR-4).
+# Errors that say "back off": they carry a signal so admission pauses the right scope.
 _LIMITS = frozenset({ErrorClass.RATE_LIMITED, ErrorClass.QUOTA_EXHAUSTED, ErrorClass.OVERLOADED})
 
 
@@ -61,17 +61,21 @@ def stream_timeout(*, connect_timeout_s: float, idle_timeout_s: float) -> httpx.
 
 def upstream_error(
     provider: str,
-    status: int,
-    error: Mapping[str, Any],
-    error_class: ErrorClass,
-    headers: Mapping[str, str],
+    response: httpx.Response,
     limit_scope: LimitScope,
+    classify: Callable[[int, str], ErrorClass],
 ) -> ProviderError:
-    """The ``ProviderError`` for an HTTP error response, once classified. Written once for
-    every adapter (found in review: Anthropic's copy sent no signal for a quota error)."""
+    """The ``ProviderError`` for an HTTP error response (its body already read), classified by
+    the adapter's own ``classify``. Written once for every adapter (found in review:
+    Anthropic's copy sent no signal for a quota error)."""
+    status = response.status_code
+    error, blob = error_payload(response.content)
+    error_class = classify(status, blob)
     signal = None
     if error_class in _LIMITS:
-        signal = ProviderSignal(retry_after_s=retry_after(headers), limit_scope=limit_scope)
+        signal = ProviderSignal(
+            retry_after_s=retry_after(response.headers), limit_scope=limit_scope
+        )
     message = f"{provider} {status}: {str(error.get('message', ''))[:300]}"
     return ProviderError(error_class, message, signal)
 
@@ -79,7 +83,7 @@ def upstream_error(
 def stream_failure(content_seen: bool, message: str) -> ProviderError:
     """A stream that went wrong. Before any content it is an ordinary upstream fault (it can
     fall back); after it, the answer is incomplete and Relay never switches models, so it is
-    ``stream_broken`` (Appendix B, FR-5)."""
+    ``stream_broken``."""
     return ProviderError(
         ErrorClass.STREAM_BROKEN if content_seen else ErrorClass.SERVER_ERROR, message
     )
@@ -170,13 +174,13 @@ def error_payload(body: bytes) -> tuple[dict[str, Any], str]:
 
 
 def transport_error(exc: httpx.HTTPError, *, content_started: bool) -> ProviderError:
-    """Map a connection-level failure (no HTTP status to look at) to Appendix B.
+    """Map a connection-level failure (no HTTP status to look at) to an ``ErrorClass``.
 
     The same exception means different things depending on *when* it happens:
-    - before any content: a timeout is ``timeout`` (fall back, PRD FR-5), anything else is
+    - before any content: a timeout is ``timeout`` (fall back), anything else is
       ``server_error``;
     - after content started: anything is ``stream_broken``, because the answer is now
-      incomplete and, after the first byte, Relay never switches models (FR-5).
+      incomplete and, after the first byte, Relay never switches models.
     """
     if content_started:
         return ProviderError(ErrorClass.STREAM_BROKEN, f"connection failed mid-stream: {exc!r}")

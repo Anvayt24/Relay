@@ -1,4 +1,4 @@
-"""The policy control plane over HTTP (PRD FR-11; ADR 0024).
+"""The policy control plane over HTTP.
 
     GET  /v1/admin/policy                 the pointer, what this replica serves, recent events
     POST /v1/admin/policy/shadow          {"version": "2026-10-28.2"}

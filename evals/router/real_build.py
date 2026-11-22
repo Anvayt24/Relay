@@ -1,4 +1,4 @@
-"""Build the *real* router dataset from judged pairs (the counted real run; ADR 0018 §7).
+"""Build the *real* router dataset from judged pairs (the counted real run).
 
     python -m evals.router.real_build --pairs evals/router/real/pairs.jsonl \\
         [--labels my_labels.jsonl]
@@ -13,13 +13,14 @@ What differs from the simulation, and is stated everywhere the numbers appear:
 - **There is no ground truth.** ``y_true`` is null, except where a **human** labeled the pair
   (``--labels``, made with ``python -m relay.evidence.label``): those become the gold subset PPI
   needs, but only when there are at least 50 of them in a held-out split.
-- **The judge has not passed the M7 gate** (no human labels at calibration scale yet), so every
-  result is "uncalibrated" and may not drive a decision.
+- **The judge has not passed the calibration gate** (kappa >= 0.6 and loss recall >= 0.7 on
+  >= 50 human labels; there are no human labels at that scale yet), so every result is
+  "uncalibrated" and may not drive a decision.
 - The set is small (about a hundred prompts), so intervals are wide.
 - Judge abstentions are dropped (never guessed).
 
 Clusters (cosine > 0.95) and the 60/20/20 split by whole cluster are built exactly as for the
-simulation (PRD FR-7: remove near-duplicates, split by prompt).
+simulation (remove near-duplicates, split by prompt).
 """
 
 import argparse
@@ -97,7 +98,7 @@ async def build(pairs_path: Path, labels_path: Path | None) -> None:
         rows,
         vectors,
         {
-            "world": "REAL run; judge UNCALIBRATED (no human labels at M7 scale); not reproducible",
+            "world": "REAL run; judge not calibrated against human labels; not reproducible",
             "embedding_model": MODEL_NAME,
             "fastembed_version": importlib.metadata.version("fastembed"),
             "near_duplicate_cosine": NEAR_DUPLICATE_COSINE,

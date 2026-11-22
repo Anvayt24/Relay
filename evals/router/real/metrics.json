@@ -1,5 +1,5 @@
 {
-  "what": "router evaluation on the held-out test split (ADR 0018)",
+  "what": "router evaluation on the held-out test split",
   "world": "real",
   "dataset": {
     "rows": 150,

@@ -1,4 +1,4 @@
-"""Live smoke tests: tiny real calls to each provider whose key is set (PRD §11.3).
+"""Live smoke tests: tiny real calls to each provider whose key is set.
 
 Marked ``live``: excluded from ``make check`` and CI. Run by hand only with the user's OK,
 after confirming the cheapest current model per provider (real-api-usage rules). Each provider
@@ -23,7 +23,7 @@ from relay.settings import Settings
 pytestmark = pytest.mark.live
 
 CONFIG = load_config()  # the shipped relay/config/relay.yaml
-PROMPT = "Say hi."  # public and harmless: Gemini's free tier may keep prompts (PRD §13)
+PROMPT = "Say hi."  # public and harmless: Gemini's free tier may keep prompts
 
 
 def _model_for(provider: str) -> str:

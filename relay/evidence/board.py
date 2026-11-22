@@ -4,19 +4,19 @@ The worker writes cards to Postgres; every replica reads them here, every ``poll
 into a dict. Two things read that dict, both in microseconds:
 
 - the **dispatcher**, through the ``EdgeStateSource`` protocol: a gated fallback edge takes
-  its state from its card (FR-5's edge-usability table). It replaces ``SeededEdgeStates``,
-  which stays as the fallback for an edge that has no card yet (cold start, ADR 0010);
+  its state from its card (the edge-usability rules). It replaces ``SeededEdgeStates``,
+  which stays as the fallback for an edge that has no card yet (cold start);
 - the **shadow stage**, for its sampling rate: higher while a comparison is undecided.
 
 **Card state → edge state:**
 
     safe → safe     unsafe → unsafe     undecided | uncalibrated | stale → undecided
 
-The last row is §10.7's "no automatic changes" when the judge is uncalibrated or the
+The last row is the "no automatic changes" rule when the judge is uncalibrated or the
 rectifier stale: the edge falls back to the cautious state, which ``strict`` tenants never
 use, instead of trusting a number nobody can vouch for.
 
-**Postgres down:** the last cards loaded stay in force, and a counter says so (the PRD's
+**Postgres down:** the last cards loaded stay in force, and a counter says so (the
 "replicas keep the last loaded" rule, applied to cards).
 
 **A card the worker stopped updating stops counting.** The worker re-stamps every card on every

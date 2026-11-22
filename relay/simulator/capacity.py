@@ -1,7 +1,7 @@
 """Rate limits (RPM/TPM token buckets) and the clock they run on.
 
 Real providers return 429s because *you* pushed too hard, not at random. A simulator that
-only injects random 429s cannot show that Relay's admission control (Phase 6) prevents
+only injects random 429s cannot show that Relay's admission control prevents
 them, so the limits here behave like real ones:
 - they refill over time;
 - they are per API key, optionally per model as well;
@@ -16,7 +16,7 @@ is what most providers describe.
 **TPM is charged ``prompt_tokens + max_tokens`` up front**, because the provider cannot know
 how long the reply will be until it ends, so it reserves the cap. That is why a request with
 a huge ``max_tokens`` can be rate-limited while asking a one-word question. Relay's own
-reservations (Phase 6, FR-4) copy the same idea.
+reservations copy the same idea.
 
 **No locks needed.** Many requests share these buckets concurrently, but every method here is
 synchronous: it never awaits. Under asyncio only one coroutine runs at a time, and it cannot

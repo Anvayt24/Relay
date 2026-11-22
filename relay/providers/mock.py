@@ -1,4 +1,4 @@
-"""Relay's ``mock`` provider: the simulator, used in-process (PRD §11.1: one codebase).
+"""Relay's ``mock`` provider: the simulator, used in-process.
 
 The adapter itself is thin. Everything about *what happens* to a request lives in
 ``relay.simulator``, and this class only adds what makes it an adapter:

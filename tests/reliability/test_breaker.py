@@ -1,4 +1,4 @@
-"""The circuit breaker state machine (PRD FR-5; ADR 0009)."""
+"""The circuit breaker state machine."""
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -9,7 +9,7 @@ from relay.schemas.errors import ErrorClass
 
 from .conftest import FakeClock  # type: ignore[import-not-found]
 
-CFG = ReliabilityConfig()  # PRD defaults: 50% of >= 10 calls in 30 s, open 30 s, 3 probes
+CFG = ReliabilityConfig()  # defaults: 50% of >= 10 calls in 30 s, open 30 s, 3 probes
 FAIL = ErrorClass.SERVER_ERROR
 
 
@@ -165,7 +165,7 @@ def test_breaker_invariants_hold_for_any_history(ops: list[tuple[str, float]]) -
 
 def test_quota_errors_neither_trip_nor_dilute() -> None:
     # Like a 429, "out of quota" says nothing about the provider's health: it belongs to the
-    # pause state (FR-4). It must neither count as a failure nor as a success.
+    # pause state. It must neither count as a failure nor as a success.
     b = breaker(FakeClock())
     for _ in range(50):
         call(b, ErrorClass.QUOTA_EXHAUSTED)
